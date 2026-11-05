@@ -35,9 +35,9 @@ public class DriveSubsystem {
         RightFront = hardwareMap.get(DcMotor.class, "2");
         RightBack = hardwareMap.get(DcMotor.class, "3");
 
-        LeftFront.setDirection(DcMotorSimple.Direction.FORWARD);
+        LeftFront.setDirection(DcMotorSimple.Direction.REVERSE);
         LeftBack.setDirection(DcMotorSimple.Direction.REVERSE);
-        RightFront.setDirection(DcMotorSimple.Direction.REVERSE);
+        RightFront.setDirection(DcMotorSimple.Direction.FORWARD);
         RightBack.setDirection(DcMotorSimple.Direction.FORWARD);
 
         LeftFront.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);

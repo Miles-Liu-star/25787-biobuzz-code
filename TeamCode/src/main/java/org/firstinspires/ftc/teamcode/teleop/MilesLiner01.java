@@ -10,23 +10,34 @@ import com.qualcomm.robotcore.hardware.Servo;
 
 import org.firstinspires.ftc.teamcode.subsystems.DriveSubsystem;
 import org.firstinspires.ftc.teamcode.subsystems.ShooterSubsystem;
+import org.firstinspires.ftc.teamcode.subsystems.PitchSubsystem;
 
+/*
+* 常用Terminal指令
+ & "D:\AndroidStudio-SDK\platform-tools\adb.exe" connect 192.168.43.1:5555
+ & "D:\AndroidStudio-SDK\platform-tools\adb.exe" disconnect 192.168.43.1:5555
+ & "D:\AndroidStudio-SDK\platform-tools\adb.exe" devices
+*/
 @TeleOp(name = "Headless", group = "Advanced")
 public class MilesLiner01 extends OpMode {
     private DcMotor intake = null;
     private DcMotor middleTurn = null;
-    private Servo pitch = null;
-    private Servo switch_model = null;
+    private PitchSubsystem pitch = null;
+    private Servo switch_model_big = null;
+    private Servo switch_model_small = null;
     private IMU imu = null;
     private DriveSubsystem driveSubsystem = null;
     private ShooterSubsystem shooterSubsystem = null;
     private boolean was_press_dpadup = false;
     private boolean was_press_dpaddown = false;
-
-    private boolean pitch_model = false;// true为高 false为低
-    private boolean was_press_pitch = false;
-    private boolean ball_model = false;// true 为大球 false 为小球
+    private boolean ball_model = false;// true 为开 false 为关
     private boolean was_press_switch = false;
+    private boolean is_open_shooter = false;
+    private boolean was_press_shooter = false;
+    private boolean is_open_intake = false;
+    private boolean was_press_intake = false;
+    private boolean is_open_midturn = false;
+    private boolean was_press_midturn = false;
 
     private final ElapsedTime yawPidTimer = new ElapsedTime();
 
@@ -37,8 +48,8 @@ public class MilesLiner01 extends OpMode {
     public void init() {
         intake = hardwareMap.get(DcMotor.class, "03");
         middleTurn = hardwareMap.get(DcMotor.class, "02");
-        pitch = hardwareMap.get(Servo.class, "s5");
-        switch_model = hardwareMap.get(Servo.class, "s00");
+        switch_model_big = hardwareMap.get(Servo.class, "s1");
+        switch_model_small = hardwareMap.get(Servo.class, "s2");
 
         middleTurn.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         intake.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
@@ -52,6 +63,7 @@ public class MilesLiner01 extends OpMode {
 
         driveSubsystem = new DriveSubsystem(hardwareMap, telemetry, imu);
         shooterSubsystem = new ShooterSubsystem(hardwareMap, telemetry);
+        pitch = new PitchSubsystem(hardwareMap, telemetry);
 
         yawPidTimer.reset();
 
@@ -64,15 +76,38 @@ public class MilesLiner01 extends OpMode {
             imu.resetYaw();
         }
 
-        if (gamepad1.right_bumper) {
+        if(gamepad1.right_bumper && !was_press_intake)
+        {
+            is_open_intake = !is_open_intake;
+        }
+        was_press_intake = gamepad1.right_bumper;
+        if (is_open_intake) {
             intake.setPower(1);
-        } else if (gamepad1.left_bumper) {
-            intake.setPower(-1);
         } else {
             intake.setPower(0);
         }
 
-        if (gamepad1.right_trigger > 0.5) {
+        if(gamepad1.left_bumper && !was_press_midturn)
+        {
+            is_open_midturn = !is_open_midturn;
+        }
+        was_press_midturn = gamepad1.left_bumper;
+        if(is_open_midturn)
+        {
+            middleTurn.setPower(-1);
+        }
+        else
+        {
+            middleTurn.setPower(0);
+        }
+
+
+        if(gamepad1.b && !was_press_shooter)
+        {
+            is_open_shooter = !is_open_shooter;
+        }
+        was_press_shooter = gamepad1.b;
+        if (is_open_shooter) {
             double shooterPower = shooterSubsystem.FPD();
             shooterSubsystem.setShooterPower(shooterPower);
         } else {
@@ -81,33 +116,25 @@ public class MilesLiner01 extends OpMode {
         }
 
         if (gamepad1.dpad_up && !was_press_dpadup) {
-            shooterSubsystem.increaseTargetRPM(50);
+            shooterSubsystem.increaseTargetRPM(25);
             was_press_dpadup = true;
         }
         if (gamepad1.dpad_down && !was_press_dpaddown) {
-            shooterSubsystem.decreaseTargetRPM(50);
+            shooterSubsystem.decreaseTargetRPM(25);
             was_press_dpaddown = true;
         }
         was_press_dpadup = gamepad1.dpad_up;
         was_press_dpaddown = gamepad1.dpad_down;
 
-
-        if (gamepad1.a && !was_press_pitch) {
-            pitch_model = !pitch_model;
-            pitch.setPosition(pitch_model ? 1.0 : 0.0);
-            was_press_pitch = true;
-        }
-        was_press_pitch = gamepad1.a;
-
         if (gamepad1.x && !was_press_switch) {
             ball_model = !ball_model;
-            switch_model.setPosition(ball_model ? 1.0 : 0.0);
-            was_press_switch = true;
+            switch_model_big.setPosition(ball_model ? 1.0 : 0.0);
+            switch_model_small.setPosition(ball_model ? 0.3 : 0.2);
         }
         was_press_switch = gamepad1.x;
 
-        middleTurn.setPower(-gamepad1.left_trigger);
         driveSubsystem.update(gamepad1);
+        pitch.update();
     }
 
     @Override

@@ -13,10 +13,10 @@ public class ShooterSubsystem {
     private DcMotorEx shooter1 = null;
     private Telemetry telemetry;
 
-    private double targetRPM = 1000;
+    private double targetRPM = 1875;
     private static final double SHOOTER_KP = 0.0004;
-    private static final double SHOOTER_KI = 0.00001;
-    private static final double SHOOTER_KD = 0.00000;
+    private static final double SHOOTER_KI = 0.000005;
+    private static final double SHOOTER_KD = 0.000002;
     private static final double SHOOTER_KF = 0.0000;
     private static final double SHOOTER_INTEGRAL_LIMIT = 5000.0;
 
@@ -86,12 +86,14 @@ public class ShooterSubsystem {
 
         // telemetry.addData("Shooter actual RPM", "%.0f", currentRPM);
         // telemetry.addData("Shooter power", "%.3f", power);
-        return power;
+        return -power;
     }
 
     public void setShooterPower(double power) {
         shooter0.setPower(power);
         shooter1.setPower(power);
+        telemetry.addData("targetRPM",targetRPM);
+        telemetry.addData("currentRPM",-shooter0.getVelocity());
     }
 
     public void resetShooterPID() {
