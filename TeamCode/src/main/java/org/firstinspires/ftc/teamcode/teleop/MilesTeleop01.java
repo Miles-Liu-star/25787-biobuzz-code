@@ -18,8 +18,8 @@ import org.firstinspires.ftc.teamcode.subsystems.PitchSubsystem;
  & "D:\AndroidStudio-SDK\platform-tools\adb.exe" disconnect 192.168.43.1:5555
  & "D:\AndroidStudio-SDK\platform-tools\adb.exe" devices
 */
-@TeleOp(name = "Headless", group = "Advanced")
-public class MilesLiner01 extends OpMode {
+@TeleOp(name = "无头手动", group = "Advanced")
+public class MilesTeleop01 extends OpMode {
     private DcMotor intake = null;
     private DcMotor middleTurn = null;
     private PitchSubsystem pitch = null;
@@ -40,6 +40,7 @@ public class MilesLiner01 extends OpMode {
     private boolean was_press_midturn = false;
 
     private final ElapsedTime yawPidTimer = new ElapsedTime();
+    private ElapsedTime shooterTimer = new ElapsedTime();
 
     private double yawIntegral = 0;
     private double previousYawError = 0;
@@ -66,7 +67,9 @@ public class MilesLiner01 extends OpMode {
         pitch = new PitchSubsystem(hardwareMap, telemetry);
 
         yawPidTimer.reset();
+        shooterTimer.reset();
 
+        telemetry.addData("version", "01");
         telemetry.addData("Status", "Initialized");
     }
 
@@ -94,7 +97,7 @@ public class MilesLiner01 extends OpMode {
         was_press_midturn = gamepad1.left_bumper;
         if(is_open_midturn)
         {
-            middleTurn.setPower(-1);
+            middleTurn.setPower(1);
         }
         else
         {

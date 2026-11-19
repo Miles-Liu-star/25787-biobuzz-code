@@ -13,7 +13,7 @@ public class ShooterSubsystem {
     private DcMotorEx shooter1 = null;
     private Telemetry telemetry;
 
-    private double targetRPM = 1875;
+    private double targetRPM = 1800;
     private static final double SHOOTER_KP = 0.0004;
     private static final double SHOOTER_KI = 0.000005;
     private static final double SHOOTER_KD = 0.000002;
@@ -32,7 +32,7 @@ public class ShooterSubsystem {
         shooter1 = hardwareMap.get(DcMotorEx.class, "01");
 
         shooter0.setDirection(DcMotorSimple.Direction.FORWARD);
-        shooter1.setDirection(DcMotorSimple.Direction.REVERSE);
+        shooter1.setDirection(DcMotorSimple.Direction.FORWARD);
 
         shooter0.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
         shooter1.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
@@ -86,14 +86,15 @@ public class ShooterSubsystem {
 
         // telemetry.addData("Shooter actual RPM", "%.0f", currentRPM);
         // telemetry.addData("Shooter power", "%.3f", power);
-        return -power;
+        return power;
     }
 
     public void setShooterPower(double power) {
         shooter0.setPower(power);
         shooter1.setPower(power);
         telemetry.addData("targetRPM",targetRPM);
-        telemetry.addData("currentRPM",-shooter0.getVelocity());
+        telemetry.addData("currentRPM",shooter0.getVelocity());
+        telemetry.addData("currentPower",power);
     }
 
     public void resetShooterPID() {
