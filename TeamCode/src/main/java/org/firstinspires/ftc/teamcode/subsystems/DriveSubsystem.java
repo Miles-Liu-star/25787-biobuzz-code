@@ -15,7 +15,6 @@ public class DriveSubsystem {
     private DcMotor LeftBack = null;
     private DcMotor RightFront = null;
     private DcMotor RightBack = null;
-    private final IMU imu;
     private final Telemetry telemetry;
 
     private static final double DEADBAND = 0.05;
@@ -26,9 +25,8 @@ public class DriveSubsystem {
     private double lastTurnPower = 0.0;
     private final ElapsedTime loopTimer = new ElapsedTime();
 
-    public DriveSubsystem(HardwareMap hardwareMap, Telemetry telemetry, IMU imu) {
+    public DriveSubsystem(HardwareMap hardwareMap, Telemetry telemetry) {
         this.telemetry = telemetry;
-        this.imu = imu;
 
         LeftFront = hardwareMap.get(DcMotor.class, "0");
         LeftBack = hardwareMap.get(DcMotor.class, "1");
@@ -36,9 +34,9 @@ public class DriveSubsystem {
         RightBack = hardwareMap.get(DcMotor.class, "3");
 
         LeftFront.setDirection(DcMotorSimple.Direction.REVERSE);
-        LeftBack.setDirection(DcMotorSimple.Direction.REVERSE);
+        LeftBack.setDirection(DcMotorSimple.Direction.FORWARD);
         RightFront.setDirection(DcMotorSimple.Direction.FORWARD);
-        RightBack.setDirection(DcMotorSimple.Direction.FORWARD);
+        RightBack.setDirection(DcMotorSimple.Direction.REVERSE);
 
         LeftFront.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         LeftBack.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
@@ -52,7 +50,7 @@ public class DriveSubsystem {
         return Math.abs(value) > DEADBAND ? value : 0.0;
     }
 
-    public void update(Gamepad gamepad1) {
+    public void update(Gamepad gamepad1, double heading) {
         double rawY = -gamepad1.left_stick_y;
         double rawX = gamepad1.left_stick_x;
         double rawTurn = gamepad1.right_stick_x;
@@ -65,7 +63,7 @@ public class DriveSubsystem {
         x = Math.pow(x, 3);
         turn = Math.pow(turn, 3);
 
-        double botHeading = imu.getRobotYawPitchRollAngles().getYaw(AngleUnit.RADIANS);
+        double botHeading = heading;
         double headingOffset = -botHeading;
         double rotatedX = x * Math.cos(headingOffset) - y * Math.sin(headingOffset);
         double rotatedY = x * Math.sin(headingOffset) + y * Math.cos(headingOffset);

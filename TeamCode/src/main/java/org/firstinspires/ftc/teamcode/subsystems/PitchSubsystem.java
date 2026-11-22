@@ -14,12 +14,15 @@ public class PitchSubsystem {
     public PitchSubsystem(HardwareMap hardwareMap, Telemetry telemetry)
     {
         this.telemetry = telemetry;
-        pitch_big = hardwareMap.get(Servo.class, "s5");
-        pitch_small_left = hardwareMap.get(Servo.class, "s00");
-        pitch_small_right = hardwareMap.get(Servo.class, "s0");
+        pitch_big = hardwareMap.get(Servo.class, "s0");
+        pitch_small_left = hardwareMap.get(Servo.class, "s2");
+        pitch_small_right = hardwareMap.get(Servo.class, "s3");
     }
 
     public void update()
     {
+        pitch_big.setPosition(0);
+        pitch_small_left.setPosition(0);
+        pitch_small_right.setPosition(0);
     }
 }

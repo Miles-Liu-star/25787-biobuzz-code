@@ -2,18 +2,22 @@ package org.firstinspires.ftc.teamcode.subsystems;
 
 import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.DcMotorEx;
-import com.qualcomm.robotcore.hardware.DcMotorSimple;
 import com.qualcomm.robotcore.hardware.HardwareMap;
 import com.qualcomm.robotcore.util.ElapsedTime;
 import com.qualcomm.robotcore.util.Range;
 import org.firstinspires.ftc.robotcore.external.Telemetry;
+import org.firstinspires.ftc.teamcode.shooter_bayes.Flywheel;
+import org.firstinspires.ftc.teamcode.shooter_bayes.FlywheelConfig;
+import org.firstinspires.ftc.teamcode.shooter_bayes.ShooterCalibrationStore;
 
 public class ShooterSubsystem {
     private DcMotorEx shooter0 = null;
     private DcMotorEx shooter1 = null;
     private Telemetry telemetry;
+    /** 标定完成后使用贝叶斯搜索生成的闭环控制器；未标定时为空并走旧 PIDF。 */
+    private Flywheel calibratedFlywheel;
 
-    private double targetRPM = 1800;
+    private double targetRPM = 3600;
     private static final double SHOOTER_KP = 0.0004;
     private static final double SHOOTER_KI = 0.000005;
     private static final double SHOOTER_KD = 0.000002;
@@ -31,8 +35,8 @@ public class ShooterSubsystem {
         shooter0 = hardwareMap.get(DcMotorEx.class, "00");
         shooter1 = hardwareMap.get(DcMotorEx.class, "01");
 
-        shooter0.setDirection(DcMotorSimple.Direction.FORWARD);
-        shooter1.setDirection(DcMotorSimple.Direction.FORWARD);
+        shooter0.setDirection(FlywheelConfig.FLYWHEEL_ENCODER_DIRECTION);
+        shooter1.setDirection(FlywheelConfig.FLYWHEEL_FOLLOWER_DIRECTION);
 
         shooter0.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
         shooter1.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
@@ -41,9 +45,31 @@ public class ShooterSubsystem {
         shooter1.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
 
         shooterPidTimer.reset();
+
+        // 读取 04 自测飞轮保存的模型和 PID。没有完整标定结果时保留原控制逻辑。
+        ShooterCalibrationStore store = new ShooterCalibrationStore(hardwareMap.appContext);
+        Flywheel candidate = new Flywheel(hardwareMap, store, false);
+        if (candidate.rpmCalibrated()) {
+            calibratedFlywheel = candidate;
+        } else {
+            candidate.stop();
+            shooter0.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+            shooter1.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+        }
     }
 
     public double FPD() {
+        if (calibratedFlywheel != null) {
+            double dt = shooterPidTimer.seconds();
+            shooterPidTimer.reset();
+            dt = Range.clip(dt, 0.005, 0.05);
+            calibratedFlywheel.sample(dt);
+            calibratedFlywheel.requestRpm(targetRPM, dt);
+            telemetry.addData("Shooter actual RPM", "%.0f",
+                    calibratedFlywheel.speed * 60.0 / calibratedFlywheel.ticksPerRev);
+            telemetry.addData("Shooter power", "%.3f", calibratedFlywheel.output);
+            return calibratedFlywheel.output;
+        }
         if (targetRPM <= 0) {
             shooterIntegral = 0.0;
             shooterPidInitialized = false;
@@ -98,6 +124,11 @@ public class ShooterSubsystem {
     }
 
     public void resetShooterPID() {
+        if (calibratedFlywheel != null) {
+            calibratedFlywheel.stop();
+            shooterPidTimer.reset();
+            return;
+        }
         shooterIntegral = 0.0;
         shooterPidInitialized = false;
         shooterPidTimer.reset();
@@ -112,6 +143,10 @@ public class ShooterSubsystem {
     }
 
     public void stop() {
+        if (calibratedFlywheel != null) {
+            calibratedFlywheel.stop();
+            return;
+        }
         shooter0.setPower(0);
         shooter1.setPower(0);
     }
