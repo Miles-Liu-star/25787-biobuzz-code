@@ -209,7 +209,7 @@ public class RedAuto1 extends LinearOpMode {
         follower.setPose(start);
         follower.update();
 
-        rightBoardServo = hardwareMap.get(Servo.class, "00");
+        rightBoardServo = hardwareMap.get(Servo.class, "s00");
         intake = hardwareMap.get(DcMotor.class, "02");
         middleTurn = hardwareMap.get(DcMotor.class, "03");
         smallGate = hardwareMap.get(Servo.class, SMALL_GATE_NAME);
