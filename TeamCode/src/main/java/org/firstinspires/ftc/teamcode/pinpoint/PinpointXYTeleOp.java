@@ -51,7 +51,7 @@ public final class PinpointXYTeleOp extends LinearOpMode {
                 nextStartAttempt = Maths.time() + 1.0;
             }
             pinpoint.update();
-            driveSubsystem.update(gamepad1, pinpoint.getHeading());
+            driveSubsystem.update(gamepad1, pinpoint.getHeading(),false,0);
             boolean y = gamepad1.y;
             if (y && !lastY) {
                 anchored = pinpoint.setFieldOrigin(startX, startY, 0);

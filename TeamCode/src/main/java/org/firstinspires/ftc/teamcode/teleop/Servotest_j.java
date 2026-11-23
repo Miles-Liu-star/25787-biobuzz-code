@@ -9,7 +9,7 @@ import com.qualcomm.robotcore.util.Range;
 @TeleOp(name = "手柄舵机调试器 (servo-1)", group = "Test")
 public class Servotest_j extends LinearOpMode {
 
-    private static final String SERVO_NAME = "s00";
+    private static final String SERVO_NAME = "s2";
 
     // 步进精度定义
     private static final double FINE_STEP = 0.005;   // 十字键上下：微调 (0.5%)

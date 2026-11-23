@@ -10,8 +10,8 @@ import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
 public final class PinPointConfig {
     public static final String PINPOINT = "pinpoint";
     public static final double TILE_MM = 609.6;
-    public static final double CENTER_FROM_LEFT_EDGE_MM = 0;//起始时机器人中心到场地左边缘的距离
-    public static final double CENTER_FROM_REAR_EDGE_MM = 0;//起始时机器人中心到车尾的距离
+    public static final double CENTER_FROM_LEFT_EDGE_MM = 195;//起始时机器人中心到场地左边缘的距离
+    public static final double CENTER_FROM_REAR_EDGE_MM = 195;//起始时机器人中心到车尾的距离
     public static final double X_POD_RIGHT_MM = 84;
     public static final double Y_POD_FORWARD_MM = 160.875;
     // X must count up forward and Y must count up left.

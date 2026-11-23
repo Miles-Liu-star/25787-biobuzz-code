@@ -8,10 +8,10 @@ import java.util.Random;
 import java.util.function.BooleanSupplier;
 
 /** 用两个独立高斯过程分别约束“代价”和“超调裕量”的 PID 搜索。 */
-final class BayesianPidSearch {
-    static final int MIN_ROUNDS = 20, MAX_ROUNDS = 32;
-    static final int HISTORY_STRIDE = 6, HISTORY_ROWS = 40;
-    static final int VERIFICATION_ROUNDS = 2;
+public final class BayesianPidSearch {
+    public static final int MIN_ROUNDS = 20, MAX_ROUNDS = 32;
+    public static final int HISTORY_STRIDE = 6, HISTORY_ROWS = 40;
+    public static final int VERIFICATION_ROUNDS = 2;
     private static final int FINALISTS = 3, RECORD_PATIENCE = 8;
     private final double[] max, scale;
     private final Random random = new Random(27270);
@@ -19,36 +19,36 @@ final class BayesianPidSearch {
     private final List<Review> reviews = new ArrayList<>();
     private int historyCount;
 
-    interface Trial {
+    public interface Trial {
         Result test(double[] gains, boolean verification, int pattern) throws InterruptedException;
     }
 
-    static final class Result {
-        final double cost, margin;
-        final boolean settled;
-        final String reason;
+    public static final class Result {
+        public final double cost, margin;
+        public final boolean settled;
+        public final String reason;
 
-        Result(double cost, double margin, boolean settled) {
+        public Result(double cost, double margin, boolean settled) {
             this(cost, margin, settled, "");
         }
 
-        Result(double cost, double margin, boolean settled, String reason) {
+        public Result(double cost, double margin, boolean settled, String reason) {
             this.cost = cost;
             this.margin = margin;
             this.settled = settled;
             this.reason = reason;
         }
 
-        static Result unavailable(String reason) {
+        public static Result unavailable(String reason) {
             return new Result(Double.NaN, Double.NaN, false, reason);
         }
     }
 
-    static final class Review {
-        final double[] gains;
-        final int passed;
-        final double score;
-        final String firstFailure;
+    public static final class Review {
+        public final double[] gains;
+        public final int passed;
+        public final double score;
+        public final String firstFailure;
 
         Review(double[] gains, int passed, double score, String firstFailure) {
             this.gains = gains;
@@ -58,9 +58,9 @@ final class BayesianPidSearch {
         }
     }
 
-    static final class Selection {
-        final double[] gains;
-        final double score;
+    public static final class Selection {
+        public final double[] gains;
+        public final double score;
 
         Selection(double[] gains, double score) {
             this.gains = gains;
@@ -68,33 +68,33 @@ final class BayesianPidSearch {
         }
     }
 
-    BayesianPidSearch(double[] max, double[] scale) {
+    public BayesianPidSearch(double[] max, double[] scale) {
         this.max = max.clone();
         this.scale = scale.clone();
     }
 
-    List<Review> reviews() {
+    public List<Review> reviews() {
         return new ArrayList<>(reviews);
     }
 
-    int searchCount() {
+    public int searchCount() {
         return data.size() - historyCount;
     }
 
-    int historyCount() {
+    public int historyCount() {
         return historyCount;
     }
 
-    double bestSearchCost() {
+    public double bestSearchCost() {
         return data.stream().skip(historyCount).mapToDouble(o -> o.result.cost).min().orElse(Double.NaN);
     }
 
-    double bestQualifiedSearchCost() {
+    public double bestQualifiedSearchCost() {
         return data.stream().skip(historyCount).filter(o -> o.result.settled && o.result.margin >= 0)
                 .mapToDouble(o -> o.result.cost).min().orElse(Double.NaN);
     }
 
-    Selection tune(double[] existing, Trial trial, BooleanSupplier cancelled, double[] history)
+    public Selection tune(double[] existing, Trial trial, BooleanSupplier cancelled, double[] history)
             throws InterruptedException {
         loadHistory(history);
         double[] baseline = normalize(existing), center = baseline;
@@ -196,7 +196,7 @@ final class BayesianPidSearch {
         historyCount = data.size();
     }
 
-    double[] history() {
+    public double[] history() {
         int rows = Math.min(HISTORY_ROWS, data.size());
         double[] result = new double[rows * HISTORY_STRIDE];
         for (int i = 0; i < rows; i++) {

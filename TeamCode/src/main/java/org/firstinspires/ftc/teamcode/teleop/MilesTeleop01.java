@@ -11,6 +11,7 @@ import com.qualcomm.robotcore.hardware.Servo;
 
 import org.firstinspires.ftc.teamcode.pinpoint.PinpointXYReader;
 import org.firstinspires.ftc.teamcode.pinpoint.PinPointConfig;
+import org.firstinspires.ftc.teamcode.aim_bayes.AimCalibrationStore;
 import org.firstinspires.ftc.teamcode.subsystems.AimSubsystem;
 import org.firstinspires.ftc.teamcode.subsystems.DriveSubsystem;
 import org.firstinspires.ftc.teamcode.subsystems.ShooterSubsystem;
@@ -48,6 +49,8 @@ public class MilesTeleop01 extends OpMode {
     private boolean was_press_midturn = false;
     private boolean shovel_model = true;// true 为高 false 为低
     private boolean was_press_shovel = false;
+    private boolean is_open_aim = false;
+    private boolean was_press_aim = false;
     private boolean anchored = false;
     private boolean pinpointStarted = false;
     private boolean wasPressY = false;
@@ -84,10 +87,14 @@ public class MilesTeleop01 extends OpMode {
         shooterSubsystem = new ShooterSubsystem(hardwareMap, telemetry);
         pinpoint = new PinpointXYReader(hardwareMap);
         autoAim = new AimSubsystem();
+        double[] aimGains = new AimCalibrationStore(hardwareMap.appContext).readGains();
+        autoAim.setGains(aimGains[0], aimGains[1], aimGains[2]);
 
         pinpointStarted = pinpoint.start();
         pinpointStartTimer.reset();
         pitch = new PitchSubsystem(hardwareMap, telemetry);
+
+        autoAim.setTargetPosition(1400,1300);
 
         telemetry.addData("version", "0115");
         telemetry.addData("Status", "Initialized");
@@ -96,7 +103,23 @@ public class MilesTeleop01 extends OpMode {
     @Override
     public void loop() {
         updatePinpoint();
-        double yawRateRadiansPerSecond = imu.getRobotAngularVelocity(AngleUnit.RADIANS).zRotationRate;
+        if(gamepad1.right_trigger_pressed & !was_press_aim)
+        {
+            is_open_aim = !is_open_aim;
+        }
+        was_press_aim = gamepad1.right_trigger_pressed;
+
+        if(is_open_aim)
+        {
+            double yawRateRadiansPerSecond = imu.getRobotAngularVelocity(AngleUnit.RADIANS).zRotationRate;
+            double turn = autoAim.calculateTurn(pinpoint.getXmm(),pinpoint.getYmm(),pinpoint.getHeading(),yawRateRadiansPerSecond);
+            telemetry.addData("turn:",turn);
+            driveSubsystem.update(gamepad1, pinpoint.getHeading(),true, turn);
+        }
+        else
+        {
+            driveSubsystem.update(gamepad1, pinpoint.getHeading(),false,0);
+        }
 
         if (gamepad1.y && !wasPressY) {
             anchored = pinpoint.setFieldOrigin(startX, startY, 0);
@@ -174,7 +197,6 @@ public class MilesTeleop01 extends OpMode {
         }
         was_press_switch = gamepad1.x;
 
-        driveSubsystem.update(gamepad1, pinpoint.getHeading());
         pitch.update();
 
         telemetry.update();

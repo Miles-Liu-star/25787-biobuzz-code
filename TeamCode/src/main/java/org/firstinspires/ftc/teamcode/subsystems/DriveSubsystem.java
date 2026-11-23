@@ -50,14 +50,14 @@ public class DriveSubsystem {
         return Math.abs(value) > DEADBAND ? value : 0.0;
     }
 
-    public void update(Gamepad gamepad1, double heading) {
+    public void update(Gamepad gamepad1, double heading, boolean is_use_aim, double AimTurn) {
         double rawY = -gamepad1.left_stick_y;
         double rawX = gamepad1.left_stick_x;
         double rawTurn = gamepad1.right_stick_x;
 
         double y = applyDeadband(rawY);
         double x = applyDeadband(rawX);
-        double turn = applyDeadband(rawTurn);
+        double turn = is_use_aim? AimTurn : applyDeadband(rawTurn);
 
         y = Math.pow(y, 3);
         x = Math.pow(x, 3);
