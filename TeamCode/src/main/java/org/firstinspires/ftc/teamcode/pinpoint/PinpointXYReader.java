@@ -54,6 +54,22 @@ public final class PinpointXYReader {
         return pose.recentlyLocated(MAX_POSITION_AGE_SECONDS);
     }
 
+    /** True while a recent, anchored heading is available for field-centric driving. */
+    public boolean isHeadingUsable() {
+        return pose.headingUsable() && Double.isFinite(pose.getHeading());
+    }
+
+    /** Automatic steering requires an accepted position sample from the current update. */
+    public boolean isPoseValidForControl() {
+        return pose.positionValid && isPositionValid() && isHeadingUsable()
+                && Double.isFinite(pose.yawRate);
+    }
+
+    /** Pinpoint angular velocity in radians per second, positive toward the left. */
+    public double getYawRate() {
+        return pose.yawRate;
+    }
+
     public String getStatus() {
         return pose.status;
     }

@@ -28,6 +28,7 @@ public class ShooterSubsystem {
     private double shooterIntegral = 0.0;
     private double previousShooterRPM = 0.0;
     private boolean shooterPidInitialized = false;
+    private boolean running = false;
 
     public ShooterSubsystem(HardwareMap hardwareMap, Telemetry telemetry) {
         this.telemetry = telemetry;
@@ -58,38 +59,54 @@ public class ShooterSubsystem {
         }
     }
 
-    public double FPD() {
-        if (calibratedFlywheel != null) {
-            double dt = shooterPidTimer.seconds();
-            shooterPidTimer.reset();
-            dt = Range.clip(dt, 0.005, 0.05);
-            calibratedFlywheel.sample(dt);
-            calibratedFlywheel.requestRpm(targetRPM, dt);
-            telemetry.addData("Shooter actual RPM", "%.0f",
-                    calibratedFlywheel.speed * 60.0 / calibratedFlywheel.ticksPerRev);
-            telemetry.addData("Shooter power", "%.3f", calibratedFlywheel.output);
-            return calibratedFlywheel.output;
-        }
-        if (targetRPM <= 0) {
-            shooterIntegral = 0.0;
-            shooterPidInitialized = false;
-            shooterPidTimer.reset();
-            return 0.0;
+    /** Run one speed-control tick, or stop once when the shooter is disabled. */
+    public void update(boolean enabled) {
+        telemetry.addData("Shooter target RPM", "%.0f", targetRPM);
+        if (!enabled || targetRPM <= 0.0) {
+            if (running) stop();
+            telemetry.addData("Shooter", "Off");
+            return;
         }
 
+        double dt = running ? shooterPidTimer.seconds() : 0.02;
+        if (!running && calibratedFlywheel != null) {
+            calibratedFlywheel.resetSpeedSample();
+        }
+        running = true;
+        shooterPidTimer.reset();
+
+        if (calibratedFlywheel != null) {
+            dt = Range.clip(dt, 0.005, 0.05);
+            if (!calibratedFlywheel.faulted()) {
+                calibratedFlywheel.sample(dt);
+                if (!calibratedFlywheel.faulted()) {
+                    calibratedFlywheel.requestRpm(targetRPM, dt);
+                }
+            }
+            telemetry.addData("Shooter", calibratedFlywheel.faulted() ? "Flywheel fault" : "Calibrated PID");
+            telemetry.addData("Shooter flywheel RPM", "%.0f",
+                    calibratedFlywheel.speed * 60.0 / calibratedFlywheel.ticksPerRev);
+            telemetry.addData("Shooter power", "%.3f", calibratedFlywheel.output);
+        } else {
+            updateLegacyPid(dt > 0.0 ? dt : 0.02);
+        }
+    }
+
+    private void updateLegacyPid(double dt) {
         double ticksPerRev = shooter0.getMotorType().getTicksPerRev();
-        if (ticksPerRev <= 0.0) {
+        if (!Double.isFinite(ticksPerRev) || ticksPerRev <= 0.0) {
+            stop();
             telemetry.addData("Shooter PID error", "Invalid encoder ticks per revolution");
-            return 0.0;
+            return;
         }
 
         double currentRPM = Math.abs(shooter0.getVelocity()) * 60.0 / ticksPerRev;
-        double error = targetRPM - currentRPM;
-        double dt = shooterPidTimer.seconds();
-        shooterPidTimer.reset();
-        if (dt <= 0.0) {
-            dt = 0.02;
+        if (!Double.isFinite(currentRPM)) {
+            stop();
+            telemetry.addData("Shooter PID error", "Invalid encoder velocity");
+            return;
         }
+        double error = targetRPM - currentRPM;
 
         double derivative = 0.0;
         if (shooterPidInitialized) {
@@ -110,28 +127,11 @@ public class ShooterSubsystem {
                 + SHOOTER_KD * derivative;
         power = Range.clip(power, 0.0, 1.0);
 
-        // telemetry.addData("Shooter actual RPM", "%.0f", currentRPM);
-        // telemetry.addData("Shooter power", "%.3f", power);
-        return power;
-    }
-
-    public void setShooterPower(double power) {
         shooter0.setPower(power);
         shooter1.setPower(power);
-        telemetry.addData("targetRPM",targetRPM);
-        telemetry.addData("currentRPM",shooter0.getVelocity());
-        telemetry.addData("currentPower",power);
-    }
-
-    public void resetShooterPID() {
-        if (calibratedFlywheel != null) {
-            calibratedFlywheel.stop();
-            shooterPidTimer.reset();
-            return;
-        }
-        shooterIntegral = 0.0;
-        shooterPidInitialized = false;
-        shooterPidTimer.reset();
+        telemetry.addData("Shooter", "Legacy PID");
+        telemetry.addData("Shooter motor RPM", "%.0f", currentRPM);
+        telemetry.addData("Shooter power", "%.3f", power);
     }
 
     public void increaseTargetRPM(double amount) {
@@ -145,9 +145,13 @@ public class ShooterSubsystem {
     public void stop() {
         if (calibratedFlywheel != null) {
             calibratedFlywheel.stop();
-            return;
+        } else {
+            shooter0.setPower(0);
+            shooter1.setPower(0);
         }
-        shooter0.setPower(0);
-        shooter1.setPower(0);
+        running = false;
+        shooterIntegral = 0.0;
+        shooterPidInitialized = false;
+        shooterPidTimer.reset();
     }
 }

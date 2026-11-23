@@ -4,9 +4,7 @@ import com.qualcomm.robotcore.eventloop.opmode.OpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.DcMotorSimple;
-import com.qualcomm.robotcore.hardware.IMU;
 import com.qualcomm.robotcore.util.ElapsedTime;
-import com.qualcomm.hardware.rev.RevHubOrientationOnRobot;
 import com.qualcomm.robotcore.hardware.Servo;
 
 import org.firstinspires.ftc.teamcode.pinpoint.PinpointXYReader;
@@ -16,7 +14,6 @@ import org.firstinspires.ftc.teamcode.subsystems.AimSubsystem;
 import org.firstinspires.ftc.teamcode.subsystems.DriveSubsystem;
 import org.firstinspires.ftc.teamcode.subsystems.ShooterSubsystem;
 import org.firstinspires.ftc.teamcode.subsystems.PitchSubsystem;
-import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 
 /*
 * 常用Terminal指令
@@ -26,13 +23,16 @@ import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 */
 @TeleOp(name = "无头手动", group = "Advanced")
 public class MilesTeleop01 extends OpMode {
+    private static final double AIM_TARGET_X_MM = 1400;
+    private static final double AIM_TARGET_Y_MM = 1300;
+    private static final double MANUAL_TURN_OVERRIDE = 0.12;
+
     private DcMotor intake = null;
     private DcMotor middleTurn = null;
     private PitchSubsystem pitch = null;
     private Servo switch_model_big = null;
     private Servo switch_model_small = null;
     private Servo shovel_lr = null;//不确定，需要改！！！！
-    private IMU imu = null;
     private DriveSubsystem driveSubsystem = null;
     private ShooterSubsystem shooterSubsystem = null;
     private PinpointXYReader pinpoint = null;
@@ -49,14 +49,13 @@ public class MilesTeleop01 extends OpMode {
     private boolean was_press_midturn = false;
     private boolean shovel_model = true;// true 为高 false 为低
     private boolean was_press_shovel = false;
-    private boolean is_open_aim = false;
-    private boolean was_press_aim = false;
-    private boolean anchored = false;
+    private boolean aimActive;
+    private boolean wasAimTriggerPressed;
+    private boolean initialPoseAnchored;
+    private double[] aimGains;
     private boolean pinpointStarted = false;
     private boolean wasPressY = false;
 
-    private final ElapsedTime yawPidTimer = new ElapsedTime();
-    private ElapsedTime shooterTimer = new ElapsedTime();
     private final ElapsedTime pinpointStartTimer = new ElapsedTime();
     private final double startX = PinPointConfig.CENTER_FROM_REAR_EDGE_MM;
     private final double startY = -PinPointConfig.CENTER_FROM_LEFT_EDGE_MM;
@@ -69,63 +68,53 @@ public class MilesTeleop01 extends OpMode {
         switch_model_small = hardwareMap.get(Servo.class, "s1");
         shovel_lr = hardwareMap.get(Servo.class, "s00");
 
-        imu = hardwareMap.get(IMU.class, "imu");
-        RevHubOrientationOnRobot.LogoFacingDirection logoDirection = RevHubOrientationOnRobot.LogoFacingDirection.RIGHT;
-        RevHubOrientationOnRobot.UsbFacingDirection usbDirection = RevHubOrientationOnRobot.UsbFacingDirection.UP;
-        RevHubOrientationOnRobot orientationOnRobot = new RevHubOrientationOnRobot(logoDirection, usbDirection);
-        imu.initialize(new IMU.Parameters(orientationOnRobot));
-        imu.resetYaw();
-
         middleTurn.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         intake.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         intake.setDirection(DcMotorSimple.Direction.FORWARD);
-
-        yawPidTimer.reset();
-        shooterTimer.reset();
 
         driveSubsystem = new DriveSubsystem(hardwareMap, telemetry);
         shooterSubsystem = new ShooterSubsystem(hardwareMap, telemetry);
         pinpoint = new PinpointXYReader(hardwareMap);
         autoAim = new AimSubsystem();
-        double[] aimGains = new AimCalibrationStore(hardwareMap.appContext).readGains();
-        autoAim.setGains(aimGains[0], aimGains[1], aimGains[2]);
+        aimGains = new AimCalibrationStore(hardwareMap.appContext).readGains();
+        if (aimGains != null) autoAim.setGains(aimGains[0], aimGains[1], aimGains[2]);
 
         pinpointStarted = pinpoint.start();
         pinpointStartTimer.reset();
         pitch = new PitchSubsystem(hardwareMap, telemetry);
 
-        autoAim.setTargetPosition(1400,1300);
+        autoAim.setTargetPosition(AIM_TARGET_X_MM, AIM_TARGET_Y_MM);
 
         telemetry.addData("version", "0115");
         telemetry.addData("Status", "Initialized");
     }
 
     @Override
-    public void loop() {
-        updatePinpoint();
-        if(gamepad1.right_trigger_pressed & !was_press_aim)
-        {
-            is_open_aim = !is_open_aim;
+    public void init_loop() {
+        if (!pinpointStarted && pinpointStartTimer.seconds() >= 1.0) {
+            pinpointStarted = pinpoint.start();
+            pinpointStartTimer.reset();
         }
-        was_press_aim = gamepad1.right_trigger_pressed;
+        pinpoint.update();
+        if (pinpointStarted && !initialPoseAnchored && !pinpoint.needsReanchor()) {
+            initialPoseAnchored = anchorAtStart();
+        }
+        String blocked = aimBlockedReason();
+        showAimStatus(blocked == null ? "就绪，右扳机开启" : blocked);
+        telemetry.addLine("机器人放在配置起点，INIT 期间保持静止");
+        telemetry.update();
+    }
 
-        if(is_open_aim)
-        {
-            double yawRateRadiansPerSecond = imu.getRobotAngularVelocity(AngleUnit.RADIANS).zRotationRate;
-            double turn = autoAim.calculateTurn(pinpoint.getXmm(),pinpoint.getYmm(),pinpoint.getHeading(),yawRateRadiansPerSecond);
-            telemetry.addData("turn:",turn);
-            driveSubsystem.update(gamepad1, pinpoint.getHeading(),true, turn);
-        }
-        else
-        {
-            driveSubsystem.update(gamepad1, pinpoint.getHeading(),false,0);
-        }
-
-        if (gamepad1.y && !wasPressY) {
-            anchored = pinpoint.setFieldOrigin(startX, startY, 0);
-            imu.resetYaw();
-        }
+    @Override
+    public void start() {
+        wasAimTriggerPressed = gamepad1.right_trigger_pressed;
         wasPressY = gamepad1.y;
+    }
+
+    @Override
+    public void loop() {
+        pinpoint.update();
+        updateDrive();
 
         if(gamepad1.right_bumper && !was_press_intake)
         {
@@ -171,13 +160,6 @@ public class MilesTeleop01 extends OpMode {
             is_open_shooter = !is_open_shooter;
         }
         was_press_shooter = gamepad1.b;
-        if (is_open_shooter) {
-            double shooterPower = shooterSubsystem.FPD();
-            shooterSubsystem.setShooterPower(shooterPower);
-        } else {
-            shooterSubsystem.setShooterPower(0);
-            shooterSubsystem.resetShooterPID();
-        }
 
         if (gamepad1.dpad_up && !was_press_dpadup) {
             shooterSubsystem.increaseTargetRPM(15);
@@ -189,6 +171,7 @@ public class MilesTeleop01 extends OpMode {
         }
         was_press_dpadup = gamepad1.dpad_up;
         was_press_dpaddown = gamepad1.dpad_down;
+        shooterSubsystem.update(is_open_shooter);
 
         if (gamepad1.x && !was_press_switch) {
             ball_model = !ball_model;
@@ -201,19 +184,70 @@ public class MilesTeleop01 extends OpMode {
         telemetry.update();
     }
 
-    private void updatePinpoint() {
-        if (!pinpointStarted && pinpointStartTimer.seconds() >= 1.0) {
-            pinpointStarted = pinpoint.start();
-            pinpointStartTimer.reset();
+    private void updateDrive() {
+        boolean reanchorPressed = gamepad1.y && !wasPressY;
+        wasPressY = gamepad1.y;
+        String reanchorResult = null;
+        if (reanchorPressed) {
+            if (!pinpointStarted) pinpointStarted = pinpoint.start();
+            reanchorResult = anchorAtStart() ? "已重新锚定" : "锚定失败，等定位就绪后再按 Y";
         }
 
-        pinpoint.update();
-        if (pinpoint.needsReanchor()) anchored = false;
+        boolean triggerPressed = gamepad1.right_trigger_pressed;
+        boolean toggleAim = triggerPressed && !wasAimTriggerPressed;
+        wasAimTriggerPressed = triggerPressed;
 
-        // Automatically establish the configured start pose once Pinpoint is ready.
-        // If localization later requires re-anchoring, the driver must press Y at the start point.
-        if (pinpointStarted && !anchored && !pinpoint.needsReanchor()) {
-            anchored = pinpoint.setFieldOrigin(startX, startY, 0);
+        String blocked = aimBlockedReason();
+        boolean manualOverride = Math.abs(gamepad1.right_stick_x) > MANUAL_TURN_OVERRIDE;
+        boolean nextAimActive = aimActive;
+        if (reanchorPressed || blocked != null || manualOverride) {
+            nextAimActive = false;
+        } else if (toggleAim) {
+            nextAimActive = !aimActive;
+        }
+        if (nextAimActive != aimActive) autoAim.resetController();
+        aimActive = nextAimActive;
+
+        boolean fieldCentric = pinpoint.isHeadingUsable();
+        double heading = fieldCentric ? pinpoint.getHeading() : 0.0;
+        double turn = 0.0;
+        if (aimActive) {
+            turn = autoAim.calculateTurn(pinpoint.getXmm(), pinpoint.getYmm(), heading, pinpoint.getYawRate());
+            telemetry.addData("目标航向 / 误差", "%+.1f° / %+.1f°",
+                    Math.toDegrees(autoAim.getTargetHeadingRadians()),
+                    Math.toDegrees(autoAim.getHeadingErrorRadians()));
+        }
+        driveSubsystem.update(gamepad1, heading, aimActive, turn);
+
+        String status = blocked != null ? blocked : aimActive ? "已开启" : "已关闭，右扳机开启";
+        if (blocked == null && manualOverride) status = "右摇杆手动转向";
+        showAimStatus(status);
+        if (reanchorResult != null) telemetry.addData("Pinpoint 锚定", reanchorResult);
+        telemetry.addData("驾驶坐标", fieldCentric ? "场地" : "车身");
+        telemetry.addData("自瞄 turn（左为正）", "%+.3f", turn);
+    }
+
+    private boolean anchorAtStart() {
+        return pinpointStarted && pinpoint.setFieldOrigin(startX, startY, 0)
+                && pinpoint.isPoseValidForControl();
+    }
+
+    private String aimBlockedReason() {
+        if (aimGains == null) return "需要运行「自测自动瞄准 PID」";
+        if (pinpoint.needsReanchor()) return "定位失效，回起点按 Y";
+        if (!pinpoint.isPoseValidForControl()) return "等待有效定位，必要时回起点按 Y";
+        return null;
+    }
+
+    private void showAimStatus(String status) {
+        telemetry.addData("自瞄", status);
+        telemetry.addData("Pinpoint", "%s / 定位%s", pinpoint.getStatus(),
+                pinpoint.isPoseValidForControl() ? "有效" : "无效");
+        telemetry.addData("坐标 X / Y / 航向", "%+.0f / %+.0f mm / %+.1f°",
+                pinpoint.getXmm(), pinpoint.getYmm(), Math.toDegrees(pinpoint.getHeading()));
+        telemetry.addData("目标 X / Y", "%.0f / %.0f mm", AIM_TARGET_X_MM, AIM_TARGET_Y_MM);
+        if (aimGains != null) {
+            telemetry.addData("自瞄 P / I / D", "%.4f / %.4f / %.4f", aimGains[0], aimGains[1], aimGains[2]);
         }
     }
 

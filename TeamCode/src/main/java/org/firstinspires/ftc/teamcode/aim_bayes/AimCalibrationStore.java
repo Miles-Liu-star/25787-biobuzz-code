@@ -3,12 +3,11 @@ package org.firstinspires.ftc.teamcode.aim_bayes;
 import android.content.Context;
 import android.content.SharedPreferences;
 
-import org.firstinspires.ftc.teamcode.subsystems.AimSubsystem;
-
 /** Saves Aim PID gains and Bayesian search history on the Robot Controller. */
 public final class AimCalibrationStore {
-    public static final String PID = "aim_pid_v1";
-    public static final String PID_HISTORY = "aim_pid_history_v1";
+    // v1 was calibrated against cubed turn commands and the old turn sign.
+    private static final String PID = "aim_pid_v2";
+    private static final String PID_HISTORY = "aim_pid_history_v2";
 
     private final SharedPreferences preferences;
 
@@ -16,19 +15,19 @@ public final class AimCalibrationStore {
         preferences = context.getSharedPreferences("aim_calibration_v1", Context.MODE_PRIVATE);
     }
 
+    /** Return calibrated P/I/D, or null when this controller has no usable calibration. */
     public double[] readGains() {
         try {
-            String[] fields = preferences.getString(PID, "").split(",");
+            String[] fields = preferences.getString(PID, "").split(",", -1);
             if (fields.length == 3) {
                 double[] gains = {Double.parseDouble(fields[0]), Double.parseDouble(fields[1]),
                         Double.parseDouble(fields[2])};
                 if (validGains(gains)) return gains;
             }
         } catch (IllegalArgumentException | ClassCastException ignored) {
-            // Fall back to the controller's default gains.
+            // Treat an unreadable calibration as missing.
         }
-        return new double[]{AimSubsystem.DEFAULT_K_P, AimSubsystem.DEFAULT_K_I,
-                AimSubsystem.DEFAULT_K_D};
+        return null;
     }
 
     public double[] readHistory(int stride, int rows) {
@@ -62,7 +61,7 @@ public final class AimCalibrationStore {
     private static boolean validGains(double[] gains) {
         if (gains == null || gains.length != 3) return false;
         for (double gain : gains) if (!Double.isFinite(gain) || gain < 0) return false;
-        return true;
+        return gains[0] > 0.0 || gains[1] > 0.0;
     }
 
     private static String encode(double[] values) {

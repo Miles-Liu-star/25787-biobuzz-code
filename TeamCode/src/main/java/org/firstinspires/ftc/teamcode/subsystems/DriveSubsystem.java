@@ -4,11 +4,9 @@ import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.DcMotorSimple;
 import com.qualcomm.robotcore.hardware.Gamepad;
 import com.qualcomm.robotcore.hardware.HardwareMap;
-import com.qualcomm.robotcore.hardware.IMU;
 import com.qualcomm.robotcore.util.ElapsedTime;
 import com.qualcomm.robotcore.util.Range;
 import org.firstinspires.ftc.robotcore.external.Telemetry;
-import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 
 public class DriveSubsystem {
     private DcMotor LeftFront = null;
@@ -23,6 +21,7 @@ public class DriveSubsystem {
     private double lastDrivePower = 0.0;
     private double lastStrafePower = 0.0;
     private double lastTurnPower = 0.0;
+    private boolean wasUsingAim;
     private final ElapsedTime loopTimer = new ElapsedTime();
 
     public DriveSubsystem(HardwareMap hardwareMap, Telemetry telemetry) {
@@ -50,26 +49,31 @@ public class DriveSubsystem {
         return Math.abs(value) > DEADBAND ? value : 0.0;
     }
 
-    public void update(Gamepad gamepad1, double heading, boolean is_use_aim, double AimTurn) {
+    /** Heading and aim turn are counterclockwise-positive; manual right stick is clockwise-positive. */
+    public void update(Gamepad gamepad1, double heading, boolean aimEnabled, double aimTurn) {
         double rawY = -gamepad1.left_stick_y;
         double rawX = gamepad1.left_stick_x;
         double rawTurn = gamepad1.right_stick_x;
 
         double y = applyDeadband(rawY);
         double x = applyDeadband(rawX);
-        double turn = is_use_aim? AimTurn : applyDeadband(rawTurn);
-
         y = Math.pow(y, 3);
         x = Math.pow(x, 3);
-        turn = Math.pow(turn, 3);
 
-        double botHeading = heading;
-        double headingOffset = -botHeading;
+        boolean useAim = aimEnabled && Double.isFinite(aimTurn);
+        if (useAim != wasUsingAim) {
+            lastTurnPower = 0.0;
+            wasUsingAim = useAim;
+        }
+        // Only shape the driver's stick. The PID already produces a normalized command.
+        double targetTurn = useAim ? -Range.clip(aimTurn, -1.0, 1.0)
+                : Math.pow(applyDeadband(rawTurn), 3);
+
+        double headingOffset = Double.isFinite(heading) ? -heading : 0.0;
         double rotatedX = x * Math.cos(headingOffset) - y * Math.sin(headingOffset);
         double rotatedY = x * Math.sin(headingOffset) + y * Math.cos(headingOffset);
         double targetDrive = rotatedY;
         double targetStrafe = rotatedX;
-        double targetTurn = turn;
 
         double driveSlewRate = Math.abs(targetDrive) > Math.abs(lastDrivePower) ? ACCEL_SLEW_RATE : DECEL_SLEW_RATE;
         double strafeSlewRate = Math.abs(targetStrafe) > Math.abs(lastStrafePower) ? ACCEL_SLEW_RATE : DECEL_SLEW_RATE;
@@ -109,6 +113,7 @@ public class DriveSubsystem {
             backRightPower /= maxPower;
         }
 
+        telemetry.addData("底盘转向输出（右为正）", "%+.3f", currentTurn / Math.max(1.0, maxPower));
         telemetry.addData("frontLeftPower", "%5.1f", frontLeftPower);
         telemetry.addData("frontRightPower", "%5.1f", frontRightPower);
         telemetry.addData("backLeftPower", "%5.1f", backLeftPower);
@@ -125,5 +130,8 @@ public class DriveSubsystem {
         LeftBack.setPower(0);
         RightFront.setPower(0);
         RightBack.setPower(0);
+        lastDrivePower = lastStrafePower = lastTurnPower = 0.0;
+        wasUsingAim = false;
+        loopTimer.reset();
     }
 }
