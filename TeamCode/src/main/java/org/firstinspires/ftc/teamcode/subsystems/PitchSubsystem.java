@@ -22,7 +22,7 @@ public class PitchSubsystem {
     public void update()
     {
         pitch_big.setPosition(0);
-        pitch_small_left.setPosition(0);
-        pitch_small_right.setPosition(0);
+        pitch_small_left.setPosition(0.5);
+        pitch_small_right.setPosition(0.5);
     }
 }

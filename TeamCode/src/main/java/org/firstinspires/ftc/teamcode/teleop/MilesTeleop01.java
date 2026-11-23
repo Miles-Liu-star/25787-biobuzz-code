@@ -180,11 +180,11 @@ public class MilesTeleop01 extends OpMode {
         }
 
         if (gamepad1.dpad_up && !was_press_dpadup) {
-            shooterSubsystem.increaseTargetRPM(25);
+            shooterSubsystem.increaseTargetRPM(15);
             was_press_dpadup = true;
         }
         if (gamepad1.dpad_down && !was_press_dpaddown) {
-            shooterSubsystem.decreaseTargetRPM(25);
+            shooterSubsystem.decreaseTargetRPM(15);
             was_press_dpaddown = true;
         }
         was_press_dpadup = gamepad1.dpad_up;
@@ -198,7 +198,6 @@ public class MilesTeleop01 extends OpMode {
         was_press_switch = gamepad1.x;
 
         pitch.update();
-
         telemetry.update();
     }
 

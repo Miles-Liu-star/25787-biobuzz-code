@@ -1,4 +1,4 @@
-package org.firstinspires.ftc.teamcode.AutoRed;
+package org.firstinspires.ftc.teamcode.automatic;
 
 /* 吸球电机 02、皮筋轮 03；右侧铲板舵机 00。
  * 小球阻球器：0 挡球，0.09 放球；FTC 配置名称暂用 s1，运行前须核对。
@@ -9,7 +9,6 @@ import static com.pedropathing.ivy.commands.Commands.*;
 import static com.pedropathing.ivy.groups.Groups.sequential;
 import static com.pedropathing.ivy.pedro.PedroCommands.follow;
 
-import com.acmerobotics.dashboard.config.Config;
 import com.pedropathing.api.Paths;
 import com.pedropathing.api.PoseFactory;
 import com.pedropathing.follower.Follower;
@@ -23,7 +22,7 @@ import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.Servo;
 // 如果 Constants 不在此包中，请根据实际项目修改此导入。
-import org.firstinspires.ftc.teamcode.pedroPathing.Constants;
+import org.firstinspires.ftc.teamcode.pedroRathing.Constants;
 import org.firstinspires.ftc.teamcode.subsystems.ShooterSubsystem;
 
 /**
@@ -35,7 +34,6 @@ import org.firstinspires.ftc.teamcode.subsystems.ShooterSubsystem;
  * path7 保持 reverseTangent()，不得改为 tangent()。
  */
 @Autonomous(name = "红方自动1", group = "Red")
-@Config
 public class RedAuto1 extends LinearOpMode {
 
     // 飞轮与皮筋轮同时运行的时长，不保证飞轮已达到目标转速。
@@ -92,25 +90,32 @@ public class RedAuto1 extends LinearOpMode {
 
     /* ---------------- 动作命令 ---------------- */
 
+    private Command waitSeconds(double seconds) {
+        return waitMs(seconds * 1000.0);
+    }
+
     private Command shootCmd() {
-        return command(() -> {
-            shooterSubsystem.resetShooterPID();
-            shooterEnabled = true;
-            middleTurn.setPower(FEEDER_POWER);
-            smallGate.setPosition(SMALL_GATE_RELEASE);
-            telemetry.addLine("SHOOT: 飞轮、皮筋轮启动，阻球器放球");
-        }).andThen(waitSeconds(SHOOT_DELAY))
-                .andThen(command(() -> {
+        return sequential(
+                instant(() -> {
+                    shooterSubsystem.resetShooterPID();
+                    shooterEnabled = true;
+                    middleTurn.setPower(FEEDER_POWER);
+                    smallGate.setPosition(SMALL_GATE_RELEASE);
+                    telemetry.addLine("SHOOT: 飞轮、皮筋轮启动，阻球器放球");
+                }),
+                waitSeconds(SHOOT_DELAY),
+                instant(() -> {
                     shooterEnabled = false;
                     middleTurn.setPower(0);
                     shooterSubsystem.stop();
                     shooterSubsystem.resetShooterPID();
                     smallGate.setPosition(SMALL_GATE_BLOCK);
-                }));
+                })
+        );
     }
 
     private Command intakeOnCmd() {
-        return command(() -> {
+        return instant(() -> {
             telemetry.addLine("INTAKE ON: 阻球器挡球");
             smallGate.setPosition(SMALL_GATE_BLOCK);
             intake.setPower(INTAKE_POWER);
@@ -118,7 +123,7 @@ public class RedAuto1 extends LinearOpMode {
     }
 
     private Command intakeOffCmd() {
-        return command(() -> {
+        return instant(() -> {
             telemetry.addLine("INTAKE OFF");
             intake.setPower(0);
         });
@@ -126,18 +131,24 @@ public class RedAuto1 extends LinearOpMode {
 
     /** 右侧舵机放下铲板；左侧舵机 02 暂不发送控制命令。 */
     private Command lowerBoardCmd() {
-        return command(() -> {
-            rightBoardServo.setPosition(0.49);
-            telemetry.addLine("BOARD LOWER: 右侧 00 -> 0.49");
-        }).andThen(waitSeconds(BOARD_LOWER_DELAY));
+        return sequential(
+                instant(() -> {
+                    rightBoardServo.setPosition(0.49);
+                    telemetry.addLine("BOARD LOWER: 右侧 00 -> 0.49");
+                }),
+                waitSeconds(BOARD_LOWER_DELAY)
+        );
     }
 
     /** 右侧舵机升起铲板；左侧舵机 02 暂不发送控制命令。 */
     private Command raiseBoardCmd() {
-        return command(() -> {
-            rightBoardServo.setPosition(0.0);
-            telemetry.addLine("BOARD RAISE: 右侧 00 -> 0");
-        }).andThen(waitSeconds(BOARD_RAISE_DELAY));
+        return sequential(
+                instant(() -> {
+                    rightBoardServo.setPosition(0.0);
+                    telemetry.addLine("BOARD RAISE: 右侧 00 -> 0");
+                }),
+                waitSeconds(BOARD_RAISE_DELAY)
+        );
     }
 
     /* ---------------- 自动序列 ---------------- */
