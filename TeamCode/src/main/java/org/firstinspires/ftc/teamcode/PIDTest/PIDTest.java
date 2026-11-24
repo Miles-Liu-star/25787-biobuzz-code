@@ -2,7 +2,6 @@ package org.firstinspires.ftc.teamcode.PIDTest;
 
 import com.acmerobotics.dashboard.FtcDashboard;
 import com.acmerobotics.dashboard.config.Config;
-import com.acmerobotics.dashboard.telemetry.MultipleTelemetry;
 import com.acmerobotics.dashboard.telemetry.TelemetryPacket;
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
@@ -32,8 +31,8 @@ public class PIDTest extends LinearOpMode{
     public static final double MOTOR_TICK_COUNT = 28; // 例如, goBILDA 5203系列 19.2:1 电机
 
 
-    // 你的目标RPM - 现在可以通过Dashboard实时修改！
-    public static double TARGET_RPM = 2000;
+    // Dashboard writes this field from its WebSocket thread.
+    public static volatile double TARGET_RPM = 2000;
 
     // PIDF 系数 - 现在可以通过Dashboard实时修改！
     // P, I, D, F 必须是独立的 public static 变量才能被Dashboard识别
@@ -48,9 +47,6 @@ public class PIDTest extends LinearOpMode{
         // 初始化 FTC Dashboard
         dashboard = FtcDashboard.getInstance();
 
-        // 使用 MultipleTelemetry 可以同时将数据显示在手机屏幕和Dashboard上
-        telemetry = new MultipleTelemetry(telemetry, dashboard.getTelemetry());
-
         // 从硬件映射中获取电机
         motor = hardwareMap.get(DcMotorEx.class, "00");
         motor2 = hardwareMap.get(DcMotorEx.class, "01");
@@ -60,15 +56,21 @@ public class PIDTest extends LinearOpMode{
         motor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
         motor2.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
 
-        telemetry.addLine("准备开始...");
-        telemetry.addLine("连接到FTC Dashboard，并打开浏览器访问 http://192.168.43.1:8080/dash");
-        telemetry.update();
-
-        waitForStart();
+        while (opModeInInit()) {
+            double targetRpm = TARGET_RPM;
+            TelemetryPacket packet = new TelemetryPacket();
+            packet.put("目标 RPM", targetRpm);
+            dashboard.sendTelemetryPacket(packet);
+            telemetry.addData("目标 RPM", targetRpm);
+            telemetry.addLine("Dashboard → PIDTest → TARGET_RPM，修改后点 Save Changes");
+            telemetry.update();
+            sleep(100);
+        }
 
         if (opModeIsActive()) {
 
             while (opModeIsActive()) {
+                double targetRpm = TARGET_RPM;
                 // 从Dashboard实时更新PIDF系数
 //                PIDFCoefficients pidfCoefficients = new PIDFCoefficients(P, I, D, F);
 //                motor.setPIDFCoefficients(DcMotor.RunMode.RUN_USING_ENCODER, pidfCoefficients);
@@ -81,7 +83,7 @@ public class PIDTest extends LinearOpMode{
 
                 PID pid = new PID(P,0,D);
                 // 将目标RPM转换为每秒的编码器刻度数和功率
-                double targetTicksPerSecond = TARGET_RPM * MOTOR_TICK_COUNT / 60.0;
+                double targetTicksPerSecond = targetRpm * MOTOR_TICK_COUNT / 60.0;
                 double feedForward = F * targetTicksPerSecond;
 //
                 double pidPower = pid.update(targetTicksPerSecond-currentVelocityTicks);
@@ -97,15 +99,15 @@ public class PIDTest extends LinearOpMode{
 
                 // 将你需要绘制图表的数据放入数据包
                 // packet.put(key, value)
-                packet.put("目标 RPM", TARGET_RPM);
+                packet.put("目标 RPM", targetRpm);
                 packet.put("当前 RPM", currentRPM);
-                packet.put("误差 (RPM)", TARGET_RPM - currentRPM);
+                packet.put("误差 (RPM)", targetRpm - currentRPM);
 
                 // 发送数据包到Dashboard
                 dashboard.sendTelemetryPacket(packet);
 
                 // 同时在手机屏幕上显示简单数据
-                telemetry.addData("目标 RPM", TARGET_RPM);
+                telemetry.addData("目标 RPM", targetRpm);
                 telemetry.addData("当前 RPM", "%.2f", currentRPM);
                 telemetry.update();
             }
