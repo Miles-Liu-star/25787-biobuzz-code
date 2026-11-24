@@ -24,6 +24,7 @@ public final class Flywheel {
     public final double ticksPerRev;
     private Pid pid;
     private int previousTicks;
+    private boolean hasSpeedSample = true;
     private double previousVelocity, lastMotion;
     private boolean fault;
     public double speed, target, output, stableSeconds;
@@ -120,12 +121,19 @@ public final class Flywheel {
         pid = new Pid(gains);
     }
 
+    /** Discard the old encoder baseline before resuming after a sampling gap. */
+    public void resetSpeedSample() {
+        hasSpeedSample = false;
+        speed = previousVelocity = 0;
+    }
+
     public void sample(double dt) {
         try {
             int tick = ticks();
-            int delta = tick - previousTicks;
+            int delta = hasSpeedSample ? tick - previousTicks : 0;
             if (delta != 0) lastMotion = Maths.time();
             previousTicks = tick;
+            hasSpeedSample = true;
             previousVelocity = speed;
             speed += dt / (0.075 + dt) * (Math.abs(delta / dt) - speed);
             if (output > 0.22 && Maths.time() - lastMotion > 0.85) fault = true;

@@ -94,7 +94,6 @@ public class RedAuto1 extends LinearOpMode {
 
     private Command shootCmd() {
         return command(() -> {
-            shooterSubsystem.resetShooterPID();
             shooterEnabled = true;
             middleTurn.setPower(FEEDER_POWER);
             smallGate.setPosition(SMALL_GATE_RELEASE);
@@ -104,7 +103,6 @@ public class RedAuto1 extends LinearOpMode {
                     shooterEnabled = false;
                     middleTurn.setPower(0);
                     shooterSubsystem.stop();
-                    shooterSubsystem.resetShooterPID();
                     smallGate.setPosition(SMALL_GATE_BLOCK);
                 }));
     }
@@ -220,7 +218,7 @@ public class RedAuto1 extends LinearOpMode {
                 follower.update();
                 Scheduler.execute();
                 if (shooterEnabled) {
-                    shooterSubsystem.setShooterPower(shooterSubsystem.FPD());
+                    shooterSubsystem.update(true);
                 }
 
                 telemetry.addData("x", follower.pose().x());
@@ -239,7 +237,6 @@ public class RedAuto1 extends LinearOpMode {
             middleTurn.setPower(0);
             shooterEnabled = false;
             shooterSubsystem.stop();
-            shooterSubsystem.resetShooterPID();
             // 不在停止时强制移动铲板，以免产生意外动作。
         }
     }
