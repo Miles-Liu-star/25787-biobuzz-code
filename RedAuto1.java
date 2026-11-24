@@ -4,12 +4,11 @@ package org.firstinspires.ftc.teamcode.automatic;
  * 硬件配置（与 Robot Controller 配置名称必须完全一致）：
  *   飞轮电机：00、01（ShooterSubsystem 内部读取）
  *   底盘：左前 0、左后 1、右前 2、右后 3（在 Constants.java 中配置）
- *   吸球电机：02    皮筋轮电机：03
+ *   吸球电机：02   皮筋轮电机：03
  *   小球阻球器：s1（0 挡球，0.09 放球）
- *   铲板舵机：SHOVEL_NAME（扩展板上的舵机，名称和升/降位置须核对）
- *   大球阻球器 s01、左铲板 s02、pitch 舵机 s0/s2/s3：本程序不控制
+ *   铲板舵机：右 s00、左 s02，两者同时转动、方向相反
+ *   大球阻球器 s01、pitch 舵机 s0/s2/s3：本程序不控制
  */
-
 import static com.pedropathing.ivy.Scheduler.schedule;
 import static com.pedropathing.ivy.commands.Commands.*;
 import static com.pedropathing.ivy.groups.Groups.sequential;
@@ -46,9 +45,11 @@ public class RedAuto1 extends LinearOpMode {
 
     /* ---------------- 可调参数 ---------------- */
 
-    // 必须与 ShooterSubsystem 中的 targetRPM 一致（靠场地边 1800）。
+    // ShooterSubsystem 里 targetRPM 的初始值（出处：ShooterSubsystem.java，private double targetRPM = 3600）。
+    private static final double SUBSYSTEM_DEFAULT_RPM = 3600;
+    // 自动程序使用的目标转速（靠场地边 1800）。初始化时通过 decreaseTargetRPM() 设到这个值。
     public static double TARGET_RPM = 1800;
-    // 认为“已达速”的允许误差（RPM）。
+    // 认为"已达速"的允许误差（RPM）。
     public static double RPM_TOLERANCE = 80;
     // 到点后等待达速的最长时间（秒），超时后仍然放球。
     public static double SPINUP_TIMEOUT = 1.5;
@@ -59,10 +60,17 @@ public class RedAuto1 extends LinearOpMode {
     public static double SMALL_GATE_BLOCK = 0.0;
     public static double SMALL_GATE_RELEASE = 0.09;
 
-    // 铲板舵机名称和位置须按实际配置核对（量程 0–0.635）。
-    public static String SHOVEL_NAME = "s0expentionhub";
+    // 铲板舵机 s00 位置（出处：本程序原有值，量程 0-0.635）。
+    public static String SHOVEL_NAME = "s00";
     public static double SHOVEL_UP = 0.0;
     public static double SHOVEL_DOWN = 0.49;
+
+    // 左铲板舵机 s02（出处：本程序硬件注释"左铲板 s02"）。
+    // 程序里没有 s02 的现成位置，这里按镜像安装取 1 - s00 位置：
+    // 升 1.0，降 0.51。如果装车后两边角度不一致，只改这两个数。
+    public static String SHOVEL_LEFT_NAME = "s02";
+    public static double SHOVEL_LEFT_UP = 1.0 - SHOVEL_UP;
+    public static double SHOVEL_LEFT_DOWN = 1.0 - SHOVEL_DOWN;
     public static double SHOVEL_MOVE_DELAY = 0.5;
 
     // 功率方向须先空载测试。
@@ -75,6 +83,7 @@ public class RedAuto1 extends LinearOpMode {
 
     private Follower follower;
     private Servo shovel;
+    private Servo shovelLeft;
     private Servo smallGate;
     private DcMotor intake;
     private DcMotor feeder;
@@ -88,7 +97,8 @@ public class RedAuto1 extends LinearOpMode {
 
     private final PoseFactory poseFactory = PoseFactory.degrees();
 
-    private final Pose start = poseFactory.of(56, 8, 90);
+    // ========== 【重要】正式比赛时，把这个start替换成Pinpoint换算后的真实起点坐标 ==========
+    private final Pose start = poseFactory.of(73.00, 24.21, 90);
     private final Pose path1 = poseFactory.of(56.0098, 14.4482, 89.9132);
     private final Pose point2 = poseFactory.of(8.7778, 8.3187, 90);
     private final Pose point2Control1 = poseFactory.of(16.1563, 20.4927, 0);
@@ -116,7 +126,7 @@ public class RedAuto1 extends LinearOpMode {
 
     /* ---------------- 射球相关 ---------------- */
 
-    /** 飞轮电机转速（RPM），与 ShooterSubsystem.FPD() 的计算方式一致。 */
+    /** 飞轮电机转速（RPM），计算方式同 ShooterSubsystem.updateLegacyPid() 中的 currentRPM。 */
     private double shooterRPM() {
         double tpr = shooterRead.getMotorType().getTicksPerRev();
         if (tpr <= 0) return 0;
@@ -127,13 +137,19 @@ public class RedAuto1 extends LinearOpMode {
         return Math.abs(TARGET_RPM - shooterRPM()) <= RPM_TOLERANCE;
     }
 
+    /**
+     * Ivy 没有 waitSeconds，只有 waitMs(毫秒)。
+     * 出处：pedropathing.com/docs/ivy/utilities-and-decorators
+     */
+    private static Command waitSeconds(double seconds) {
+        return waitMs((long) (seconds * 1000));
+    }
+
     /** 预热：开启飞轮闭环，放在射球前那条路径之前。 */
     private Command spinUpCmd() {
-        return command(() -> {
-            if (!shooterEnabled) {
-                shooterSubsystem.resetShooterPID();
-                shooterEnabled = true;
-            }
+        return instant(() -> {
+            // ShooterSubsystem.update(true) 首次启动时会自行重置采样，不需要手动重置 PID。
+            shooterEnabled = true;
         });
     }
 
@@ -142,14 +158,15 @@ public class RedAuto1 extends LinearOpMode {
      * 最多等待 SPINUP_TIMEOUT + FEED_DURATION 秒，送球结束后关闭机构。
      */
     private Command shootCmd() {
-        return spinUpCmd()
-                .andThen(command(() -> {
+        return sequential(
+                spinUpCmd(),
+                instant(() -> {
                     feedRequested = true;
                     feeding = false;
                     feedTimer.reset();
-                }))
-                .andThen(waitSeconds(SPINUP_TIMEOUT + FEED_DURATION))
-                .andThen(command(this::stopShooting));
+                }),
+                waitSeconds(SPINUP_TIMEOUT + FEED_DURATION),
+                instant(this::stopShooting));
     }
 
     private void stopShooting() {
@@ -158,15 +175,15 @@ public class RedAuto1 extends LinearOpMode {
         shooterEnabled = false;
         feeder.setPower(0);
         smallGate.setPosition(SMALL_GATE_BLOCK);
+        // stop() 内部已清零积分并重置计时器（出处：ShooterSubsystem.stop()）。
         shooterSubsystem.stop();
-        shooterSubsystem.resetShooterPID();
     }
 
     /** 主循环中调用：处理飞轮闭环与达速放球。 */
     private void updateShooter() {
-        if (shooterEnabled) {
-            shooterSubsystem.setShooterPower(shooterSubsystem.FPD());
-        }
+        // 出处：ShooterSubsystem.update(boolean enabled)，每个循环调用一次；
+        // enabled 为 false 时它只会停一次电机。
+        shooterSubsystem.update(shooterEnabled);
         if (feedRequested && !feeding) {
             if (shooterAtSpeed() || feedTimer.seconds() >= SPINUP_TIMEOUT) {
                 feeding = true;
@@ -182,24 +199,33 @@ public class RedAuto1 extends LinearOpMode {
     /* ---------------- 吸球 / 铲板 ---------------- */
 
     private Command intakeOnCmd() {
-        return command(() -> {
+        return instant(() -> {
             smallGate.setPosition(SMALL_GATE_BLOCK);
             intake.setPower(INTAKE_POWER);
         });
     }
 
     private Command intakeOffCmd() {
-        return command(() -> intake.setPower(0));
+        return instant(() -> intake.setPower(0));
     }
 
     private Command lowerShovelCmd() {
-        return command(() -> shovel.setPosition(SHOVEL_DOWN))
-                .andThen(waitSeconds(SHOVEL_MOVE_DELAY));
+        return sequential(instant(this::shovelDown), waitSeconds(SHOVEL_MOVE_DELAY));
     }
 
     private Command raiseShovelCmd() {
-        return command(() -> shovel.setPosition(SHOVEL_UP))
-                .andThen(waitSeconds(SHOVEL_MOVE_DELAY));
+        return sequential(instant(this::shovelUp), waitSeconds(SHOVEL_MOVE_DELAY));
+    }
+
+    /** s00 与 s02 在同一次调用里设置，同时转动。 */
+    private void shovelUp() {
+        shovel.setPosition(SHOVEL_UP);
+        shovelLeft.setPosition(SHOVEL_LEFT_UP);
+    }
+
+    private void shovelDown() {
+        shovel.setPosition(SHOVEL_DOWN);
+        shovelLeft.setPosition(SHOVEL_LEFT_DOWN);
     }
 
     /* ---------------- 自动序列 ---------------- */
@@ -265,10 +291,13 @@ public class RedAuto1 extends LinearOpMode {
         follower.update();
 
         shovel = hardwareMap.get(Servo.class, SHOVEL_NAME);
+        shovelLeft = hardwareMap.get(Servo.class, SHOVEL_LEFT_NAME);
         smallGate = hardwareMap.get(Servo.class, SMALL_GATE_NAME);
         intake = hardwareMap.get(DcMotor.class, "02");
         feeder = hardwareMap.get(DcMotor.class, "03");
         shooterSubsystem = new ShooterSubsystem(hardwareMap, telemetry);
+        // ShooterSubsystem 没有 setTargetRPM，只能用 decreaseTargetRPM 从 3600 调到 TARGET_RPM。
+        shooterSubsystem.decreaseTargetRPM(SUBSYSTEM_DEFAULT_RPM - TARGET_RPM);
         shooterRead = hardwareMap.get(DcMotorEx.class, "00");
 
         intake.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
@@ -279,7 +308,7 @@ public class RedAuto1 extends LinearOpMode {
 
         // 初始化安全位置：阻球器挡球、铲板升起（初始化时舵机会动，注意手离开）
         smallGate.setPosition(SMALL_GATE_BLOCK);
-        shovel.setPosition(SHOVEL_UP);
+        shovelUp();
 
         telemetry.addLine("初始化完成，等待开始");
         telemetry.update();
@@ -308,6 +337,7 @@ public class RedAuto1 extends LinearOpMode {
             }
         } finally {
             intake.setPower(0);
+            shovelUp();   // 异常/结束兜底升板，避免中途停止时铲板卡在 DOWN
             stopShooting();
         }
     }
@@ -358,10 +388,12 @@ public class RedAuto1 extends LinearOpMode {
         return Paths.line(point7, point8).tangent();
     }
 
+    // ========== 已修复：移除 Interpolator.tangent.reverse()，改用路径级 reverseTangent ==========
     public Path path9() {
         return Paths.curve(point8, point9Control1, point9)
+                .reverseTangent()
                 .heading(Interpolator.piecewise()
-                        .until(0.5949, Interpolator.tangent.reverse())
+                        .until(0.5949, Interpolator.tangent)
                         .until(1, Interpolator.linear(point9Segment2Start, point9Segment2End)));
     }
 
