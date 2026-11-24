@@ -18,8 +18,8 @@ public final class PinpointPose {
     private static final double BULK_SCOPE_RETRY_SECONDS = 2;
     private static final double MAX_YAW_RATE = 18;
     private static final double HEADING_SLACK = Math.toRadians(1.5);
-    private static final double MAX_POSITION_RATE = 5000;
-    private static final double POSITION_SLACK_MM = 45;
+    private static final double MAX_POSITION_RATE_INCHES_PER_SECOND = 5000.0 / 25.4;
+    private static final double POSITION_SLACK_INCHES = 45.0 / 25.4;
     private static final String POSITION_REANCHOR = "Pinpoint 位置需要重新对齐，回起点按 Y";
     private final GoBildaPinpointDriver device;
     private boolean started, anchored, positionAnchored, needsAnchor, positionNeedsAnchor, podsValid;
@@ -39,7 +39,7 @@ public final class PinpointPose {
     public int headingJumps, recoveredHeadingJumps;
     public double lastJumpAngle, lastJumpSeconds, lastJumpRate;
     public int positionJumps;
-    public double lastPositionJumpMm, lastPositionJumpSeconds;
+    public double lastPositionJumpInches, lastPositionJumpSeconds;
     public int firmwareVersion;
 
     public PinpointPose(HardwareMap map) {
@@ -200,8 +200,8 @@ public final class PinpointPose {
     }
 
     private void updatePosition(double sampleTime) {
-        localX = device.getPosX(DistanceUnit.MM);
-        localY = device.getPosY(DistanceUnit.MM);
+        localX = device.getPosX(DistanceUnit.INCH);
+        localY = device.getPosY(DistanceUnit.INCH);
         podsValid = Maths.finite(localX, localY);
         if (!hasPositionAnchor()) {
             if (positionNeedsAnchor && !needsAnchor) status = POSITION_REANCHOR;
@@ -213,11 +213,12 @@ public final class PinpointPose {
         // A valid recovery frame includes motion since the last accepted position.
         double window = Math.min(elapsed, REANCHOR_AFTER_READ_GAP);
         double distance = Math.hypot(localX - previousX, localY - previousY);
-        boolean jumped = podsValid && distance > MAX_POSITION_RATE * window + POSITION_SLACK_MM;
+        boolean jumped = podsValid && distance > MAX_POSITION_RATE_INCHES_PER_SECOND * window
+                + POSITION_SLACK_INCHES;
         if (!podsValid || jumped) {
             if (jumped) {
                 positionJumps++;
-                lastPositionJumpMm = distance;
+                lastPositionJumpInches = distance;
                 lastPositionJumpSeconds = elapsed;
             }
             positionRejected = true;
@@ -236,7 +237,7 @@ public final class PinpointPose {
         positionValid = true;
     }
 
-    public boolean anchor(double forwardMm, double rightMm, double fieldHeading) {
+    public boolean anchor(double forwardInches, double rightInches, double fieldHeading) {
         if (!headingValid || Maths.time() - lastHeadingTime > HEADING_GRACE) return false;
         if (requiresReanchor() && !podsValid) return false;
         if (positionAnchored && !requiresReanchor() && !positionValid) return false;
@@ -249,8 +250,8 @@ public final class PinpointPose {
             update();
             if (!headingValid || !podsValid) return false;
         }
-        forward = fieldForward = forwardMm;
-        left = fieldLeft = -rightMm;
+        forward = fieldForward = forwardInches;
+        left = fieldLeft = -rightInches;
         originX = localX;
         originY = localY;
         headingShift = Maths.wrap(fieldHeading - sensorYaw);

@@ -18,8 +18,6 @@ import org.firstinspires.ftc.teamcode.pinpoint.PinPointConfig;
 
 /** Pedro Pathing hardware wiring and conservative, not-yet-tuned Foresight values. */
 public final class Constants {
-    private static final double MM_PER_INCH = 25.4;
-
     /** Matches the motor names and directions used by DriveSubsystem. */
     public static final MecanumConfig drivetrainConfig = new MecanumConfig(c -> {
         c.frontLeftName.set("0");
@@ -37,8 +35,8 @@ public final class Constants {
     /** Converts the project's Pinpoint offsets from millimeters to Pedro's default inches. */
     public static final PinpointConfig localizerConfig = new PinpointConfig(c -> {
         c.name.set(PinPointConfig.PINPOINT);
-        c.xPodOffset.set(-PinPointConfig.X_POD_RIGHT_MM / MM_PER_INCH);
-        c.yPodOffset.set(PinPointConfig.Y_POD_FORWARD_MM / MM_PER_INCH);
+        c.xPodOffset.set(-PinPointConfig.X_POD_RIGHT_IN);
+        c.yPodOffset.set(PinPointConfig.Y_POD_FORWARD_IN);
         c.offsetUnits.set(DistanceUnit.INCH);
         c.globalDistanceUnit.set(DistanceUnit.INCH);
         c.encoderResolutionUnit.set(DistanceUnit.INCH);
