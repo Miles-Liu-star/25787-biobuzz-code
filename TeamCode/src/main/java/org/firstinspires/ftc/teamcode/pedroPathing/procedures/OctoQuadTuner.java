@@ -1,4 +1,4 @@
-package org.firstinspires.ftc.teamcode.pedroRathing.procedures;
+package org.firstinspires.ftc.teamcode.pedroPathing.procedures;
 
 import com.pedropathing.math.Pose;
 import com.pedropathing.revhub.localizers.OctoQuadConfig;

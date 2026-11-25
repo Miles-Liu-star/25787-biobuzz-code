@@ -26,7 +26,7 @@ public final class AimPidCalibration extends LinearOpMode {
     private static final double SETTLE_RATE_RADIANS = 0.16;
     private static final double MAX_OVERSHOOT = 0.20;
     // These are broad fault guards, not tracking tolerances; the chassis should still turn in place.
-    private static final double MAX_POSITION_DRIFT_MM = 900;
+    private static final double MAX_POSITION_DRIFT_INCHES = 900.0 / 25.4;
     private static final double MAX_HEADING_DEVIATION_RADIANS = Math.toRadians(179);
 
     private AimCalibrationStore store;
@@ -41,7 +41,9 @@ public final class AimPidCalibration extends LinearOpMode {
     private int trialCount;
     private double peakTurnCommand;
     private double trialBaseHeading;
+    private double trialBasePinpointHeading;
     private double trialBaseImuYaw;
+    private double hubHeadingOffset;
     private double maximumPinpointDeviation;
     private double maximumImuDeviation;
     private boolean headingWarningLogged;
@@ -54,7 +56,8 @@ public final class AimPidCalibration extends LinearOpMode {
         pinpoint = new PinpointXYReader(hardwareMap);
         aim = new AimSubsystem();
         double[] storedGains = store.readGains();
-        aim.setGains(storedGains[0], storedGains[1], storedGains[2]);
+        double[] initialGains = storedGains == null ? SEARCH_SEED : storedGains;
+        aim.setGains(initialGains[0], initialGains[1], initialGains[2]);
 
         RevHubOrientationOnRobot orientation = new RevHubOrientationOnRobot(
                 RevHubOrientationOnRobot.LogoFacingDirection.RIGHT,
@@ -105,7 +108,7 @@ public final class AimPidCalibration extends LinearOpMode {
             telemetry.addLine("机器人放在标准起点，周围至少留出 1 m 空间；测试中不要碰手柄摇杆。");
             telemetry.addLine("START 后按 A 开始，B 停止搜索；测试会驱动底盘原地转向。");
             telemetry.addData("Pinpoint", pinpoint.getStatus());
-            telemetry.addData("定位有效", pinpoint.isPositionValid());
+            telemetry.addData("定位有效", pinpoint.isPoseValidForControl());
             telemetry.update();
             sleep(25);
         }
@@ -116,17 +119,19 @@ public final class AimPidCalibration extends LinearOpMode {
         while (opModeIsActive() && Maths.time() < deadline) {
             pinpoint.update();
             if (!pinpoint.needsReanchor() && !anchored) anchored = anchorAtConfiguredStart();
-            if (anchored && pinpoint.isPositionValid()) return true;
+            if (anchored && pinpoint.isPoseValidForControl()) return true;
             telemetry.addData("等待定位", "%s / 已锚定 %s", pinpoint.getStatus(), anchored);
             telemetry.update();
             sleep(20);
         }
-        return anchored && pinpoint.isPositionValid();
+        return anchored && pinpoint.isPoseValidForControl();
     }
 
     private boolean anchorAtConfiguredStart() {
-        return pinpoint.setFieldOrigin(PinPointConfig.CENTER_FROM_REAR_EDGE_MM,
-                -PinPointConfig.CENTER_FROM_LEFT_EDGE_MM, 0);
+        boolean success = pinpoint.setFieldOrigin(PinPointConfig.CENTER_FROM_REAR_EDGE_IN,
+                PinPointConfig.CENTER_FROM_LEFT_EDGE_IN, 0) && pinpoint.isPoseValidForControl();
+        if (success) alignHubHeadingToPinpoint();
+        return success;
     }
 
     private boolean confirmSearch() throws InterruptedException {
@@ -134,7 +139,7 @@ public final class AimPidCalibration extends LinearOpMode {
         while (opModeIsActive()) {
             pinpoint.update();
             telemetry.addLine("确认机器人四周安全，手柄摇杆保持不动。");
-            telemetry.addData("当前 PID", gainsText(aim.getGains()));
+            telemetry.addData("搜索起点 PID", gainsText(aim.getGains()));
             telemetry.addLine("A 开始 20–32 轮贝叶斯搜索和复测；B 跳过。");
             telemetry.update();
             if (gamepad1.b) return false;
@@ -146,7 +151,6 @@ public final class AimPidCalibration extends LinearOpMode {
 
     private void tune() throws InterruptedException {
         double[] current = aim.getGains();
-        if (current[0] == 0 && current[1] == 0 && current[2] == 0) current = SEARCH_SEED.clone();
         BayesianPidSearch search = new BayesianPidSearch(
                 new double[]{4.8, 1.5, 1.8},
                 new double[]{0.70, 0.12, 0.20});
@@ -179,14 +183,16 @@ public final class AimPidCalibration extends LinearOpMode {
             throws InterruptedException {
         if (!safeToMove()) return null;
         aim.setGains(gains[0], gains[1], gains[2]);
-        double startX = pinpoint.getXmm(), startY = pinpoint.getYmm();
-        double baseHeading = pinpoint.getHeading();
+        double startX = pinpoint.getXInches(), startY = pinpoint.getYInches();
+        double baseHeading = getControlHeading();
         trialBaseHeading = baseHeading;
+        trialBasePinpointHeading = pinpoint.getHeading();
 
         setTargetBearing(baseHeading);
         if (!runFixedTarget(0.35, startX, startY, "瞄准 PID 准备")) return null;
-        baseHeading = pinpoint.getHeading();
+        baseHeading = getControlHeading();
         trialBaseHeading = baseHeading;
+        trialBasePinpointHeading = pinpoint.getHeading();
         trialBaseImuYaw = readImuYaw();
         headingWarningLogged = false;
 
@@ -196,7 +202,7 @@ public final class AimPidCalibration extends LinearOpMode {
                 baseHeading, step, verification, pattern);
         if (outward == null || !safeToMove()) return null;
 
-        double currentHeading = pinpoint.getHeading();
+        double currentHeading = getControlHeading();
         double returnStep = Maths.wrap(baseHeading - currentHeading);
         StepResult returning = measureStep(baseHeading, startX, startY, currentHeading,
                 returnStep, verification, pattern);
@@ -231,8 +237,8 @@ public final class AimPidCalibration extends LinearOpMode {
             if (!controlTick(originX, originY)) return null;
             double dt = Maths.clip(now - previousTime, 0.005, 0.25);
             previousTime = now;
-            double error = wrapRadians(targetHeading - pinpoint.getHeading());
-            double angularVelocity = imu.getRobotAngularVelocity(AngleUnit.RADIANS).zRotationRate;
+            double error = wrapRadians(targetHeading - getControlHeading());
+            double angularVelocity = readImuYawRate();
             boolean within = Math.abs(error) <= SETTLE_ANGLE_RADIANS
                     && Math.abs(angularVelocity) <= SETTLE_RATE_RADIANS;
             withinSeconds = within ? withinSeconds + dt : 0;
@@ -255,8 +261,8 @@ public final class AimPidCalibration extends LinearOpMode {
         while (opModeIsActive() && !gamepad1.b && Maths.time() - start < duration) {
             if (!controlTick(originX, originY)) return false;
             showTrial(false, 0, Maths.time() - start,
-                    wrapRadians(aim.getTargetHeadingRadians() - pinpoint.getHeading()),
-                    imu.getRobotAngularVelocity(AngleUnit.RADIANS).zRotationRate, label);
+                    wrapRadians(aim.getTargetHeadingRadians() - getControlHeading()),
+                    readImuYawRate(), label);
             sleep(20);
         }
         return opModeIsActive() && !gamepad1.b && !sensorFault && !driverMoved;
@@ -271,18 +277,18 @@ public final class AimPidCalibration extends LinearOpMode {
             return false;
         }
         pinpoint.update();
-        if (pinpoint.needsReanchor() || !pinpoint.isPositionValid()) {
+        if (!pinpoint.isPoseValidForControl()) {
             abortForSafety(pinpoint.needsReanchor()
                     ? "Pinpoint 要求重新锚定" : "Pinpoint 位置数据过期或不可用");
             return false;
         }
-        double driftX = pinpoint.getXmm() - originX, driftY = pinpoint.getYmm() - originY;
-        if (Math.hypot(driftX, driftY) > MAX_POSITION_DRIFT_MM) {
-            abortForSafety(String.format(Locale.US, "平移漂移超过 %.0f mm", MAX_POSITION_DRIFT_MM));
+        double driftX = pinpoint.getXInches() - originX, driftY = pinpoint.getYInches() - originY;
+        if (Math.hypot(driftX, driftY) > MAX_POSITION_DRIFT_INCHES) {
+            abortForSafety(String.format(Locale.US, "平移漂移超过 %.1f in", MAX_POSITION_DRIFT_INCHES));
             return false;
         }
-        double heading = pinpoint.getHeading();
-        double pinpointDeviation = wrapRadians(heading - trialBaseHeading);
+        double heading = getControlHeading();
+        double pinpointDeviation = wrapRadians(pinpoint.getHeading() - trialBasePinpointHeading);
         double imuDeviation = wrapRadians(readImuYaw() - trialBaseImuYaw);
         maximumPinpointDeviation = Math.max(maximumPinpointDeviation, Math.abs(pinpointDeviation));
         maximumImuDeviation = Math.max(maximumImuDeviation, Math.abs(imuDeviation));
@@ -299,23 +305,22 @@ public final class AimPidCalibration extends LinearOpMode {
                     Math.toDegrees(heading), Math.toDegrees(imuDeviation)));
             return false;
         }
-        double yawRate = imu.getRobotAngularVelocity(AngleUnit.RADIANS).zRotationRate;
-        double turn = aim.calculateTurn(pinpoint.getXmm(), pinpoint.getYmm(), heading, yawRate);
+        double turn = aim.calculateTurn(pinpoint.getXInches(), pinpoint.getYInches(), heading, readImuYawRate());
         peakTurnCommand = Math.max(peakTurnCommand, Math.abs(turn));
         drive.update(gamepad1, heading, true, turn);
         return true;
     }
 
     private void setTargetBearing(double bearingRadians) {
-        double radius = 1000;
-        aim.setTargetPosition(pinpoint.getXmm() + radius * Math.cos(bearingRadians),
-                pinpoint.getYmm() + radius * Math.sin(bearingRadians));
+        double radius = 1000.0 / 25.4;
+        aim.setTargetPosition(pinpoint.getXInches() + radius * Math.cos(bearingRadians),
+                pinpoint.getYInches() + radius * Math.sin(bearingRadians));
     }
 
     private boolean safeToMove() {
         if (!opModeIsActive() || gamepad1.b || sensorFault || driverMoved) return false;
         pinpoint.update();
-        if (!pinpoint.isPositionValid() || pinpoint.needsReanchor()) {
+        if (!pinpoint.isPoseValidForControl()) {
             abortForSafety(pinpoint.needsReanchor()
                     ? "Pinpoint 要求重新锚定" : "Pinpoint 位置数据过期或不可用");
             return false;
@@ -332,6 +337,20 @@ public final class AimPidCalibration extends LinearOpMode {
 
     private double readImuYaw() {
         return imu.getRobotYawPitchRollAngles().getYaw(AngleUnit.RADIANS);
+    }
+
+    private double readImuYawRate() {
+        return imu.getRobotAngularVelocity(AngleUnit.RADIANS).zRotationRate;
+    }
+
+    private double getControlHeading() {
+        return wrapRadians(readImuYaw() + hubHeadingOffset);
+    }
+
+    private void alignHubHeadingToPinpoint() {
+        if (pinpoint.isHeadingUsable()) {
+            hubHeadingOffset = wrapRadians(pinpoint.getHeading() - readImuYaw());
+        }
     }
 
     private void showTrial(boolean verification, int pattern, double elapsed, double error,
