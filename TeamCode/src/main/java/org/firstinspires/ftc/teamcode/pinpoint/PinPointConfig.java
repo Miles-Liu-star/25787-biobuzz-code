@@ -10,8 +10,8 @@ import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
 public final class PinPointConfig {
     public static final String PINPOINT = "pinpoint";
     public static final double TILE_IN = 24.0;
-    public static final double CENTER_FROM_LEFT_EDGE_IN = 7.755905511811024;
-    public static final double CENTER_FROM_REAR_EDGE_IN = 10.42232283464567;
+    public static final double CENTER_FROM_LEFT_EDGE_IN = 7.76;
+    public static final double CENTER_FROM_REAR_EDGE_IN = 7.461;
     public static final double X_POD_RIGHT_IN = 84.0 / 25.4;
     public static final double Y_POD_FORWARD_IN = 160.875 / 25.4;
     // X must count up forward and Y must count up left.

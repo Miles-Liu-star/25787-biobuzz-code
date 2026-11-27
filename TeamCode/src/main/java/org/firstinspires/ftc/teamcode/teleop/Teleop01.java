@@ -13,8 +13,9 @@ import com.qualcomm.robotcore.hardware.Servo;
 import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.teamcode.pinpoint.PinpointXYReader;
 import org.firstinspires.ftc.teamcode.pinpoint.PinPointConfig;
+import org.firstinspires.ftc.teamcode.subsystems.table;
 
-@TeleOp(name = "Driver - Hive Aim (Rear Shooter)", group = "Competition")
+@TeleOp(name = "Aim + Driver + Tuner", group = "Competition")
 public class Teleop01 extends OpMode {
 
     /* ==================== 硬件 ==================== */
@@ -30,10 +31,12 @@ public class Teleop01 extends OpMode {
     private static final double STICK_DEADZONE   = 0.05;
     private static final double TRIGGER_DEADZONE = 0.01;
     private static final double TICKS_PER_REV = 28.0;
-    private static final double MIN_RPM = 0.0, MAX_RPM = 6000.0;
 
-    private double kP = 0.00050, kD = 0.0000, kF = 0.00020;
+    private double kP = 0.00199, kD = 0.00024, kF = 0.00020;
+    //    private double kP = 0.00050, kD = 0.0000, kF = 0.00020;
     private static final double MIN_POWER = -0.1, MAX_POWER = 1.0;
+
+    private static table Table = null;
 
     /* ==================== 闸门 / 俯仰 ==================== */
     private static final double GATE_SMALL_CLOSED = 0.00;
@@ -43,40 +46,53 @@ public class Teleop01 extends OpMode {
     private static final double PITCH_MIN = 0.0, PITCH_MAX = 1.0;
     private static final boolean PITCH_MIRROR = true;
 
-    /* ==================== 瞄准点（实测后补全） ==================== */
+    /* ==================== 航向锁定 ==================== */
+    private static final double HEADING_LOCK_KP        = 1.5;
+    private static final double HEADING_LOCK_MAX_TURN  = 0.35;
+    private static final double HEADING_LOCK_DEADBAND  = Math.toRadians(1.0);
+    private static final double HEADING_YAW_RATE_THRESHOLD = 0.30;
+    private double  headingLockTarget = 0.0;
+    private boolean headingLockActive = false;
+
+    /* ==================== 扳机阈值（RT 两段式） ==================== */
+    private static final double RT_AIM_THRESHOLD     = 0.50;
+    private static final double RT_RELEASE_THRESHOLD = 0.50;
+    private static final double RT_FIRE_THRESHOLD    = 0.85;
+
+    /* ==================== 瞄准点 ==================== */
     private static final double[][] AIM_POINTS = {
-            {60, 48.0},   // 红方框 1（用户实测）
-            //     {49.0, 47.0},   // 红方框 1（用户实测）(60, 48, -90)
-            // {95.0, 47.0},   // 红方框 2（待补）
-            // {49.0, 97.0},   // 蓝方框 1（待补）
-            // {95.0, 97.0},   // 蓝方框 2（待补）
+            {72, 48},
+            {72, 144-48}
     };
 
     /* ==================== 自瞄 PID ==================== */
-    private static final double AIM_KP = 1.7;
-    private static final double AIM_KI = 0;//0.1
-    private static final double AIM_KD = 0.1;
+    private double AIM_KP = 1.66;
+    private double AIM_KD = 0.11;
+
+    private static final double AIM_KI = 0.0;
     private static final double AIM_MAX_TURN      = 0.8;
     private static final double AIM_TOLERANCE_RAD = Math.toRadians(2.0);
     private static final double AIM_I_MAX   = 1.0;
     private static final double AIM_I_ZONE  = Math.toRadians(30.0);
     private static final double AIM_D_FILTER = 0.7;
 
-    /* ==================== RT 分阶段 ==================== */
-    private static final double RT_AIM_THRESHOLD  = 0.50;
-    private static final double RT_FIRE_THRESHOLD = 0.85;
+    /* ==================== 发射参数 ==================== */
+    private static final double RPM_ENTER_ERR      = 100.0;
+    private static final double RPM_EXIT_ERR       = 200.0;
+    private static final double ENTER_STABLE_TIME  = 0.10;
 
     /* ==================== 防抖参数 ==================== */
     private static final double AIM_ENTER_DEG       = 3.0;
     private static final double AIM_EXIT_DEG        = 8.0;
-    private static final double RPM_ENTER_ERR       = 100.0;
-    private static final double RPM_EXIT_ERR        = 200.0;
-    private static final double ENTER_STABLE_TIME   = 0.10;
     private static final double FIRE_ABORT_DEG      = 15.0;
     private static final double FIRE_ABORT_TIME     = 0.30;
 
-    // LT 反转中转层
     private static final double TRANSFER_REVERSE_POWER = -0.35;
+
+    /* ==================== gamepad2 扳机反转（一按即开） ==================== */
+    private static final double GP2_REVERSE_POWER     = 0.8;
+    private static final double GP2_TRIGGER_THRESHOLD = 0.5;
+    private  final double preA = 0.5;
 
     /* ==================== Pinpoint ==================== */
     private PinpointXYReader pinpoint = null;
@@ -90,7 +106,34 @@ public class Teleop01 extends OpMode {
     private double  nextPinpointStartAttempt = 0.0;
     private double  headingOffset = 0.0;
 
-    /* ==================== 校准数据（★默认值已更新） ==================== */
+    //gamepad1
+    private boolean prevStart, prevY1, prevA1, prevB1;
+    // ★ gamepad1 dpad 边沿检测（Shooter PD 调参）
+    private boolean prevUp1, prevDown1, prevLeft1, prevRight1;
+
+    //gamepad2
+    private boolean prevA2, prevB2, prevX2, prevY2;
+    private boolean prevUp2, prevDown2, prevLeft2, prevRight2;
+    private boolean prevLB2, prevRB2;
+
+    // gamepad2 扳机反转状态（按住即反转）
+    private boolean gp2LTReverseActive = false;
+    private boolean gp2RTReverseActive = false;
+
+    // ★ X 切换是否使用打表
+    private boolean useTable = false;
+
+    private static final double TUNER_RPM_STEP         = 5.0;
+    private static final double TUNER_SMALL_PITCH_STEP = 0.005;
+    private static final double TUNER_BIG_PITCH_STEP   = 0.005;
+
+    // ★ gamepad1 dpad 调 Shooter kP/kD；gamepad2 A/B 调 kF
+    private static final double TUNER_SHOOTER_PD_STEP = 0.00001;
+    private static final double SHOOTER_KP_MIN = 0.0, SHOOTER_KP_MAX = 0.005;
+    private static final double SHOOTER_KD_MIN = 0.0, SHOOTER_KD_MAX = 0.005;
+    private static final double SHOOTER_KF_MIN = 0.0, SHOOTER_KF_MAX = 0.005;
+
+    /* ==================== 校准数据 ==================== */
     private double calRpmRed        = 3700.0, calRpmBlue        = 3700.0;
     private double calSmallPitchRed = 0.47,   calSmallPitchBlue = 0.47;
     private double calBigPitchRed   = 0.15,   calBigPitchBlue   = 0.15;
@@ -103,7 +146,7 @@ public class Teleop01 extends OpMode {
     private static final String K_PB_RED    = "big_pitch_red";
     private static final String K_PB_BLUE   = "big_pitch_blue";
 
-    /* ==================== 状态（★默认值已更新） ==================== */
+    /* ==================== 状态 ==================== */
     private double targetRPM = 3700.0, filteredRPM = 0;
     private double lastShooterError = 0, lastTime = 0;
     private double smallPitchPos = 0.47, bigPitchPos = 0.15;
@@ -119,12 +162,6 @@ public class Teleop01 extends OpMode {
     private boolean firingActive      = false;
     private double  stableTimer       = 0.0;
     private double  fireAbortTimer    = 0.0;
-
-    // 边沿检测
-    private boolean prevStart = false, prevY = false, prevA = false;
-    private boolean prevDpadUp = false, prevDpadDown = false;
-    private boolean prevDpadLeft = false, prevDpadRight = false;
-    private boolean prevLB = false, prevRB = false;
     private boolean shovelHigh = true;
 
     // 当前瞄准点
@@ -183,6 +220,8 @@ public class Teleop01 extends OpMode {
         loadCalibration();
         applyPitch(smallPitchPos, bigPitchPos);
 
+        Table = new table();
+
         telemetry.addLine("等待 Pinpoint 启动 / START 进入");
         telemetry.update();
     }
@@ -218,6 +257,7 @@ public class Teleop01 extends OpMode {
         lastTime = getRuntime();
         loadCalibration();
         applyPitch(smallPitchPos, bigPitchPos);
+        headingLockActive = false;
         resetAimPID();
         resetFireStateMachine();
     }
@@ -255,6 +295,11 @@ public class Teleop01 extends OpMode {
         double rawYaw = readHubYaw();
         double controlHeading = normalizeAngle(rawYaw + headingOffset);
 
+        // gamepad2 微调 + 扳机反转 + A/B 调 kF + X 切换 useTable
+        updateTunerFromGamepad2();
+        // ★ gamepad1 dpad 调 Shooter kP/kD
+        updateShooterPdFromGamepad1();
+
         /* ============ 1. 选最近的瞄准点 ============ */
         double px = pinpoint != null ? pinpoint.getXInches() : FIELD_START_X;
         double py = pinpoint != null ? pinpoint.getYInches() : FIELD_START_Y;
@@ -272,32 +317,71 @@ public class Teleop01 extends OpMode {
             }
         }
 
-        if (currentTargetIdx == 0) {
-            targetRPM = calRpmRed;
-            smallPitchPos = calSmallPitchRed;
-            bigPitchPos   = calBigPitchRed;
+        /* ============ 2. 参数来源：打表 或 硬切红/蓝 ============ */
+        if (useTable) {
+            // ★ 打表模式：高斯加权查表
+            table.Result r = Table.weighted(px, py);
+            if (r.valid) {
+                currentTargetX = r.x;
+                currentTargetY = r.y;
+                targetRPM     = clamp(r.shooterRPM,  0, 6000);
+                smallPitchPos = clamp(r.pitchSmall, PITCH_MIN, PITCH_MAX);
+                bigPitchPos   = clamp(r.pitchBig,   PITCH_MIN, PITCH_MAX);
+                bestDist      = r.bestDist;
+            }
+            // r.valid == false 时保持上一帧参数
         } else {
-            targetRPM = calRpmBlue;
-            smallPitchPos = calSmallPitchBlue;
-            bigPitchPos   = calBigPitchBlue;
+            // 原来的硬切红/蓝参数
+            if (currentTargetIdx == 0) {
+                targetRPM = calRpmRed;
+                smallPitchPos = calSmallPitchRed;
+                bigPitchPos   = calBigPitchRed;
+            } else {
+                targetRPM = calRpmBlue;
+                smallPitchPos = calSmallPitchBlue;
+                bigPitchPos   = calBigPitchBlue;
+            }
         }
 
-        /* ============ 2. RT 分阶段 ============ */
-        double rt = gamepad1.right_trigger;
-        boolean rtAiming = rt >= RT_AIM_THRESHOLD;
-        boolean rtFireRequest = rt >= RT_FIRE_THRESHOLD;
-
-        /* ============ 3. 底盘 + 车尾瞄准 ============ */
+        /* ============ 3. 底盘 + 自瞄/航向锁定 ============ */
         double drive  = deadzone(-gamepad1.left_stick_y);
         double strafe = deadzone( gamepad1.left_stick_x);
         double turn   = deadzone( gamepad1.right_stick_x);
 
-        if (rtAiming && pinpoint != null && pinpointAnchored
-                && pinpoint.isPositionValid() && !pinpoint.needsReanchor()) {
+        boolean rtAiming = gamepad1.right_trigger > RT_AIM_THRESHOLD;
+        boolean aimActive = rtAiming && pinpoint != null && pinpointAnchored
+                && pinpoint.isPositionValid() && !pinpoint.needsReanchor();
+
+        if (aimActive) {
+            // ===== 自瞄接管 turn，同时禁用 heading lock =====
+            headingLockActive = false;
             double aimHeading = normalizeAngle(controlHeading + Math.PI);
             turn = computeAimTurn(currentTargetX, currentTargetY, aimHeading, dt);
         } else {
+            // ===== 原 heading lock 逻辑 =====
             resetAimPID();
+
+            boolean turnInput = Math.abs(turn) > 0.0;
+            boolean moveInput = Math.abs(drive) > 0.0 || Math.abs(strafe) > 0.0;
+
+            double yawRate = imu.getRobotAngularVelocity(AngleUnit.RADIANS).zRotationRate;
+            boolean headingSpinning = Math.abs(yawRate) > HEADING_YAW_RATE_THRESHOLD;
+
+            if (turnInput || headingSpinning) {
+                headingLockActive = false;
+                headingLockTarget = controlHeading;
+            } else if (moveInput) {
+                headingLockActive = true;
+                double hErr = normalizeAngle(headingLockTarget - controlHeading);
+                if (Math.abs(hErr) > HEADING_LOCK_DEADBAND) {
+                    turn = -clamp(HEADING_LOCK_KP * hErr,
+                            -HEADING_LOCK_MAX_TURN, HEADING_LOCK_MAX_TURN);
+                } else {
+                    turn = 0.0;
+                }
+            } else {
+                headingLockActive = false;
+            }
         }
 
         double cos = Math.cos(controlHeading);
@@ -323,39 +407,16 @@ public class Teleop01 extends OpMode {
         double sDErr = (sErr - lastShooterError) / dt;
         lastShooterError = sErr;
         double sPower = clamp(kF*targetRPM + kP*sErr + kD*sDErr, MIN_POWER, MAX_POWER);
-        shooter0.setPower(sPower);
-        shooter1.setPower(sPower);
+        //电量补偿
+        double batteryVoltage = hardwareMap.voltageSensor.iterator().next().getVoltage();
+        double compensatedPower = sPower * (12.0 / batteryVoltage);
+        compensatedPower = clamp(compensatedPower, -1.0, 1.0); // 安全限幅
 
-        /* ============ 5. 微调 RPM / 俯仰（驾驶员） ============ */
-        if (gamepad1.dpad_up && !prevDpadUp)     targetRPM = clamp(targetRPM + 25, MIN_RPM, MAX_RPM);
-        if (gamepad1.dpad_down && !prevDpadDown) targetRPM = clamp(targetRPM - 25, MIN_RPM, MAX_RPM);
-        prevDpadUp = gamepad1.dpad_up; prevDpadDown = gamepad1.dpad_down;
+        shooter0.setPower(compensatedPower);
+        shooter1.setPower(compensatedPower);
 
-        double P_STEP = 0.01;
-        if (gamepad1.dpad_left && !prevDpadLeft) {
-            smallPitchPos = clamp(smallPitchPos - P_STEP, PITCH_MIN, PITCH_MAX); applyPitch(smallPitchPos, bigPitchPos);
-        }
-        if (gamepad1.dpad_right && !prevDpadRight) {
-            smallPitchPos = clamp(smallPitchPos + P_STEP, PITCH_MIN, PITCH_MAX); applyPitch(smallPitchPos, bigPitchPos);
-        }
-        if (gamepad1.left_bumper && !prevLB) {
-            bigPitchPos = clamp(bigPitchPos - P_STEP, PITCH_MIN, PITCH_MAX); applyPitch(smallPitchPos, bigPitchPos);
-        }
-        if (gamepad1.right_bumper && !prevRB) {
-            bigPitchPos = clamp(bigPitchPos + P_STEP, PITCH_MIN, PITCH_MAX); applyPitch(smallPitchPos, bigPitchPos);
-        }
-        prevDpadLeft = gamepad1.dpad_left; prevDpadRight = gamepad1.dpad_right;
-        prevLB = gamepad1.left_bumper; prevRB = gamepad1.right_bumper;
-
-        /* ============ 6. 发射锁存状态机 ============ */
-        double errDeg = Math.toDegrees(Math.abs(lastAimErrorRad));
+        /* ============ 6. 发射锁存状态机（RT>=0.85 射击） ============ */
         double rpmAbsErr = Math.abs(sErr);
-
-        if (aimAlignedLatched) {
-            if (errDeg > AIM_EXIT_DEG) aimAlignedLatched = false;
-        } else {
-            if (errDeg < AIM_ENTER_DEG) aimAlignedLatched = true;
-        }
 
         if (rpmReadyLatched) {
             if (rpmAbsErr > RPM_EXIT_ERR) rpmReadyLatched = false;
@@ -363,70 +424,84 @@ public class Teleop01 extends OpMode {
             if (rpmAbsErr < RPM_ENTER_ERR) rpmReadyLatched = true;
         }
 
+        double rt = gamepad1.right_trigger;
+        boolean rtFireRequest = rt >= RT_FIRE_THRESHOLD;
+        boolean rtHeld        = rt >= RT_RELEASE_THRESHOLD;
+
         if (!firingActive) {
-            boolean enterable = rtFireRequest && aimAlignedLatched && rpmReadyLatched
-                    && rtAiming && pinpointAnchored;
+            boolean enterable = rtFireRequest && rpmReadyLatched;
             if (enterable) {
                 stableTimer += dt;
                 if (stableTimer >= ENTER_STABLE_TIME) {
                     firingActive = true;
-                    stableTimer = 0;
-                    fireAbortTimer = 0;
+                    stableTimer  = 0;
                 }
             } else {
                 stableTimer = 0;
             }
         } else {
-            if (!rtAiming) {
+            if (!rtHeld) {
                 firingActive = false;
-                fireAbortTimer = 0;
-            } else if (errDeg > FIRE_ABORT_DEG) {
-                fireAbortTimer += dt;
-                if (fireAbortTimer > FIRE_ABORT_TIME) {
-                    firingActive = false;
-                    fireAbortTimer = 0;
-                }
-            } else {
-                fireAbortTimer = 0;
             }
         }
 
+        /* ---------- 7. 闸门 + 供球 ---------- */
         smallGateServo.setPosition(firingActive ? GATE_SMALL_OPEN : GATE_SMALL_CLOSED);
         bigGateServo.setPosition(firingActive ? GATE_BIG_OPEN   : GATE_BIG_CLOSED);
+
+        boolean lbHeld    = gamepad1.left_bumper;
+        boolean ltReverse = gamepad1.left_trigger > TRIGGER_DEADZONE;
 
         double intakePower = 0.0, transferPower = 0.0;
         if (firingActive) {
             intakePower   = 1.0;
             transferPower = 1.0;
-        } else if (gamepad1.left_trigger > TRIGGER_DEADZONE) {
-            transferPower = TRANSFER_REVERSE_POWER;
+        } else if (ltReverse) {
             intakePower   = 0.0;
+            transferPower = TRANSFER_REVERSE_POWER;
+        } else if (lbHeld) {
+            intakePower   = 1.0;
+            transferPower = 1.0;
         }
+
+        if (gp2LTReverseActive) intakePower   = -GP2_REVERSE_POWER;
+        if (gp2RTReverseActive) transferPower = -GP2_REVERSE_POWER;
 
         intakeMotor.setPower(intakePower);
         transferMotor.setPower(transferPower);
 
-        /* ============ 7. START / Y 重锚定 ============ */
-        if (gamepad1.start && !prevStart) { imu.resetYaw(); anchorPinpoint(); }
-        prevStart = gamepad1.start;
-        if (gamepad1.y && !prevY) { imu.resetYaw(); anchorPinpoint(); }
-        prevY = gamepad1.y;
+        applyPitch(smallPitchPos, bigPitchPos);
 
-        /* ============ 8. A 铲球 ============ */
-        if (gamepad1.a && !prevA) shovelHigh = !shovelHigh;
-        prevA = gamepad1.a;
+        /* ============ START / Y 重锚定 ============ */
+        if (gamepad1.start && !prevStart) {
+            imu.resetYaw();
+            anchorPinpoint();
+            headingLockActive = false;
+        }
+        prevStart = gamepad1.start;
+
+        if (gamepad1.y && !prevY1) {
+            imu.resetYaw();
+            anchorPinpoint();
+            headingLockActive = false;
+        }
+        prevY1 = gamepad1.y;
+
+        if (gamepad1.a && !prevA1) shovelHigh = !shovelHigh;
+        prevA1 = gamepad1.a;
         shovel_lr.setPosition(shovelHigh ? 0 : 0.48);
 
-        /* ============ 9. 遥测 ============ */
+        /* ============ 遥测 ============ */
         telemetry.addData("瞄准点 #", "%d (%.1f, %.1f)", currentTargetIdx, currentTargetX, currentTargetY);
         telemetry.addData("位置", "%.1f, %.1f", px, py);
         telemetry.addData("到目标距离", "%.1f in", bestDist);
+        telemetry.addData("Table 模式", useTable ? "★ 开 ★ (X 切换)" : "关 (X 切换)");
 
         telemetry.addData("RT", "%.2f", rt);
-        telemetry.addData("对准°", "%.1f", errDeg);
-        telemetry.addData("对准锁存", aimAlignedLatched ? "✅" : "❌");
+        telemetry.addData("自瞄(RT>0.5)", aimActive ? "★ 开 ★" : "关");
+        telemetry.addData("航向锁定", headingLockActive ? "🔒 锁定" : "未激活");
         telemetry.addData("转速就绪锁存", rpmReadyLatched ? "✅" : "❌");
-        telemetry.addData("发射中", firingActive ? "★ 是 ★" : "否");
+        telemetry.addData("发射中(RT>=0.85)", firingActive ? "★ 是 ★" : "否");
         telemetry.addData("稳定计时", "%.2f / %.2f", stableTimer, ENTER_STABLE_TIME);
 
         telemetry.addData("RPM", "%.0f / %.0f", targetRPM, filteredRPM);
@@ -434,8 +509,72 @@ public class Teleop01 extends OpMode {
         telemetry.addData("大球俯仰", "%.3f", bigPitchPos);
         telemetry.addData("Intake / Transfer", "%.2f / %.2f", intakePower, transferPower);
         telemetry.addData("闸门", firingActive ? "开/开" : "关/关");
+        telemetry.addData("GP2 反转", "LT:%s RT:%s",
+                gp2LTReverseActive ? "是" : "否",
+                gp2RTReverseActive ? "是" : "否");
+        telemetry.addData("Aim PID", "KP=%.2f  KD=%.2f", AIM_KP, AIM_KD);
+        telemetry.addData("Shooter PD", "kP=%.5f  kD=%.5f  kF=%.5f", kP, kD, kF);
+        telemetry.addData("Shooter 调参", "dpad↑↓ kP  dpad←→ kD  A/B kF");
 
         telemetry.update();
+    }
+
+    /* ==================== gamepad2 微调 ==================== */
+    private void updateTunerFromGamepad2() {
+        gp2LTReverseActive = gamepad2.left_trigger  > GP2_TRIGGER_THRESHOLD;
+        gp2RTReverseActive = gamepad2.right_trigger > GP2_TRIGGER_THRESHOLD;
+
+        if (gamepad2.dpad_up    && !prevUp2)    calRpmRed        = clamp(calRpmRed        + TUNER_RPM_STEP,         0, 6000);
+        if (gamepad2.dpad_down  && !prevDown2)  calRpmRed        = clamp(calRpmRed        - TUNER_RPM_STEP,         0, 6000);
+        if (gamepad2.dpad_left  && !prevLeft2)  calSmallPitchRed = clamp(calSmallPitchRed - TUNER_SMALL_PITCH_STEP, PITCH_MIN, PITCH_MAX);
+        if (gamepad2.dpad_right && !prevRight2) calSmallPitchRed = clamp(calSmallPitchRed + TUNER_SMALL_PITCH_STEP, PITCH_MIN, PITCH_MAX);
+        if (gamepad2.left_bumper  && !prevLB2)  calBigPitchRed   = clamp(calBigPitchRed   - TUNER_BIG_PITCH_STEP,   PITCH_MIN, PITCH_MAX);
+        if (gamepad2.right_bumper && !prevRB2)  calBigPitchRed   = clamp(calBigPitchRed   + TUNER_BIG_PITCH_STEP,   PITCH_MIN, PITCH_MAX);
+        if (gamepad2.y) imu.resetYaw();
+
+        // ★ A 加 kF，B 减 kF，边沿触发
+        if (gamepad2.a && !prevA2) {
+            kF = clamp(kF + TUNER_SHOOTER_PD_STEP, SHOOTER_KF_MIN, SHOOTER_KF_MAX);
+        }
+        if (gamepad2.b && !prevB2) {
+            kF = clamp(kF - TUNER_SHOOTER_PD_STEP, SHOOTER_KF_MIN, SHOOTER_KF_MAX);
+        }
+
+        // ★ X 切换是否使用打表
+        if (gamepad2.x && !prevX2) useTable = !useTable;
+
+        prevUp2    = gamepad2.dpad_up;
+        prevDown2  = gamepad2.dpad_down;
+        prevLeft2  = gamepad2.dpad_left;
+        prevRight2 = gamepad2.dpad_right;
+        prevLB2    = gamepad2.left_bumper;
+        prevRB2    = gamepad2.right_bumper;
+        prevA2     = gamepad2.a;
+        prevB2     = gamepad2.b;
+        prevX2     = gamepad2.x;
+    }
+
+    /* ==================== ★ gamepad1 dpad 调 Shooter kP/kD ==================== */
+    private void updateShooterPdFromGamepad1() {
+        // 上/下：kP
+        if (gamepad1.dpad_up    && !prevUp1) {
+            kP = clamp(kP + TUNER_SHOOTER_PD_STEP, SHOOTER_KP_MIN, SHOOTER_KP_MAX);
+        }
+        if (gamepad1.dpad_down  && !prevDown1) {
+            kP = clamp(kP - TUNER_SHOOTER_PD_STEP, SHOOTER_KP_MIN, SHOOTER_KP_MAX);
+        }
+        // 右/左：kD
+        if (gamepad1.dpad_right && !prevRight1) {
+            kD = clamp(kD + TUNER_SHOOTER_PD_STEP, SHOOTER_KD_MIN, SHOOTER_KD_MAX);
+        }
+        if (gamepad1.dpad_left  && !prevLeft1) {
+            kD = clamp(kD - TUNER_SHOOTER_PD_STEP, SHOOTER_KD_MIN, SHOOTER_KD_MAX);
+        }
+
+        prevUp1    = gamepad1.dpad_up;
+        prevDown1  = gamepad1.dpad_down;
+        prevLeft1  = gamepad1.dpad_left;
+        prevRight1 = gamepad1.dpad_right;
     }
 
     /* ==================== 工具 ==================== */
