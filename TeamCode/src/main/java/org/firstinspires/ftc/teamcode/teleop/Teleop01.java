@@ -45,7 +45,8 @@ public class Teleop01 extends OpMode {
 
     /* ==================== 瞄准点（实测后补全） ==================== */
     private static final double[][] AIM_POINTS = {
-            {49.0, 47.0},   // 红方框 1（用户实测）
+            {60, 48.0},   // 红方框 1（用户实测）
+            //     {49.0, 47.0},   // 红方框 1（用户实测）(60, 48, -90)
             // {95.0, 47.0},   // 红方框 2（待补）
             // {49.0, 97.0},   // 蓝方框 1（待补）
             // {95.0, 97.0},   // 蓝方框 2（待补）
@@ -53,7 +54,7 @@ public class Teleop01 extends OpMode {
 
     /* ==================== 自瞄 PID ==================== */
     private static final double AIM_KP = 1.7;
-    private static final double AIM_KI = 0.1;
+    private static final double AIM_KI = 0;//0.1
     private static final double AIM_KD = 0.1;
     private static final double AIM_MAX_TURN      = 0.8;
     private static final double AIM_TOLERANCE_RAD = Math.toRadians(2.0);
