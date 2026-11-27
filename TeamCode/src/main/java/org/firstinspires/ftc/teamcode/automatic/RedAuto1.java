@@ -1,260 +1,730 @@
 package org.firstinspires.ftc.teamcode.automatic;
-
-import static com.pedropathing.api.Paths.*;
-import static com.pedropathing.ivy.Scheduler.schedule;
-import static com.pedropathing.ivy.commands.Commands.*;
-import static com.pedropathing.ivy.groups.Groups.race;
+import static com.pedropathing.ivy.commands.Commands.instant;
 import static com.pedropathing.ivy.groups.Groups.sequential;
 import static com.pedropathing.ivy.pedro.PedroCommands.follow;
-
 import com.pedropathing.api.Paths;
 import com.pedropathing.api.PoseFactory;
 import com.pedropathing.follower.Follower;
-import com.pedropathing.ivy.Command;
 import com.pedropathing.ivy.Scheduler;
 import com.pedropathing.math.Pose;
 import com.pedropathing.paths.Path;
-import com.pedropathing.paths.interpolator.Interpolator;
 import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
-
-/* 包名以 Android Studio 里 teamcode 下的实际文件夹名为准：若标红，把 pedroRathing 改成 pedroPathing */
+import com.qualcomm.robotcore.hardware.DcMotor;
+import com.qualcomm.robotcore.hardware.DcMotorEx;
+import com.qualcomm.robotcore.hardware.Servo;
+import com.qualcomm.robotcore.util.ElapsedTime;
+import com.qualcomm.robotcore.util.Range;
+import org.firstinspires.ftc.robotcore.external.navigation.CurrentUnit;
 import org.firstinspires.ftc.teamcode.pedroPathing.Constants;
 
-@Autonomous(name = "AutoPath", group = "Autonomous")
-public class RedAuto1 extends LinearOpMode {
-    private Follower follower;
-    private final PoseFactory poseFactory = PoseFactory.degrees();
+@Autonomous(name = "红方自动 八段", group = "Red")
+public class RedAuto1 extends LinearOpMode
+{
+    /* 防卡阈值需在本车上验证。 */
+    private
+    static final double AUTO_LIMIT = 29.5;
+    private
+    static final double PARK_RESERVE = 4.0;
+    private
+    static final double[] LEG_LIMIT = {5, 8, 3, 3, 6, 3, 6, 4};
+    private
+    static final double STALL_WINDOW = 1.2;
+    private
+    static final double MIN_MOVE_IN = 0.40;
+    private
+    static final double MIN_TURN_DEG = 3.0;
+    private
+    static final double POSITION_TOL_IN = 2.0;
+    private
+    static final double SHOT_HEADING_TOL = 5.0;
+    private
+    static final double TURN_LIMIT = 3.0;
+    private
+    static final double SETTLE_SEC = 0.20;
+    private
+    static final double SERIES_LIMIT_A = 5.0;
+    private
+    static final double OVERCURRENT_SEC = 0.40;
 
-    /* 超时时间（秒）：只在 path3、7、8、9、10 设置，其余路径不设 */
-    public static double PATH3_TIMEOUT = 8.0;
-    public static double PATH7_TIMEOUT = 3.0;
-    public static double PATH8_TIMEOUT = 3.0;
-    public static double PATH9_TIMEOUT = 5.0;
-    public static double PATH10_TIMEOUT = 4.0;
+    /* 首轮和后续射球转速相同，俯仰分别设置。 */
+    private
+    static final double FIRST_SHOT_RPM = 3650;
+    private
+    static final double FOLLOWUP_SHOT_RPM = 3650;
+    private
+    static final double FIRST_SHOT_PITCH = 0.50;
+    private
+    static final double FOLLOWUP_SHOT_PITCH = 0.41;
+    private
+    double targetRpm = FIRST_SHOT_RPM;
+    private
+    static final double RPM_TOL = 80;
+    private
+    static final double TICKS_PER_REV = 28;
+    private
+    static final double SPINUP_LIMIT = 1.5;
+    private
+    static final double GATE_DELAY = 0.10;
+    private
+    static final double FEED_SEC = 2.0;
 
-    /* path3 结束后，离 point3 超过该距离（英寸）就先校正回 point3；校正最多花 SETTLE_TIMEOUT 秒 */
-    public static double SETTLE_DISTANCE = 1.5;
-    public static double SETTLE_TIMEOUT = 1.5;
+    private
+    final PoseFactory pf = PoseFactory.degrees();
+    private
+    final Pose start = pf.of(58.77, 9.949, -90);
+    private
+    final Pose p1 = pf.of(8.558, 9.1458, -90);
+    private
+    final Pose c1 = pf.of(5.7019, 25.0337, 0);
+    private
+    final Pose p2 = pf.of(49.0542, 117.7491, 234.2);
+    private
+    final Pose c2 = pf.of(24.0053, 93.2037, 0);
+    private
+    final Pose s3 = pf.of(49.0542, 117.7491, -265.8);
+    private
+    final Pose p3 = pf.of(47.0386, 132.2078, 90);
+    private
+    final Pose p4 = pf.of(49.2303, 117.7379, -265.8);
+    private
+    final Pose s5 = pf.of(49.2303, 117.7379, 94.2);
+    private
+    final Pose p5 = pf.of(26.0462, 46.6055, -180);
+    private
+    final Pose c5 = pf.of(21.1146, 93.96, 0);
+    private
+    final Pose p6 = pf.of(9.4364, 46.5721, -179.8556);
+    private
+    final Pose s7 = pf.of(9.4364, 46.5721, -180);
+    private
+    final Pose p7 = pf.of(49.1038, 117.4402, 94.2);
+    private
+    final Pose c71 = pf.of(28.8863, 45.1362, 0);
+    private
+    final Pose c72 = pf.of(29.102, 115.2073, 0);
+    private
+    final Pose p8 = pf.of(10, 89.4445, -0.0133);
+    private
+    final Pose c8 = pf.of(29.2477, 89.44, 0);
 
-    private int timeoutCount = 0;
-    private String lastTimeoutPath = "无";
+    private
+    final DcMotor[] wheels = new DcMotor[4];
+    private
+    final ElapsedTime timer = new ElapsedTime();
+    private
+    Follower follower;
+    private
+    DcMotorEx fly0, fly1, intake, transfer;
+    private
+    Servo small, big, pitchA, pitchB, shovelA, shovelB;
+    private
+    boolean spin, seriesOn;
+    private
+    double rpm, intakeA, transferA, highSince = -1, nextReport;
+    private
+    String phase = "初始化";
 
-    /* path3 结束瞬间，实际位置相对 point3 的偏差，用来判断到底偏了多少、偏向哪边 */
-    private double path3EndDx = 0;
-    private double path3EndDy = 0;
-    private double path3EndHeadingDeg = 0;
-
-    private final Pose start = poseFactory.of(55.9992, 9.0379, -90);
-    private final Pose path1Target = poseFactory.of(56.0098, 14.4482, -90.1121);
-
-    private final Pose point2 = poseFactory.of(8.558, 9.1458, -90);
-    private final Pose point2Control1 = poseFactory.of(16.1563, 20.4927, 0);
-
-    /* -250 与 110 是同一方向，统一写成 110 */
-    private final Pose point3 = poseFactory.of(49.0542, 121.0074, 110);
-    private final Pose point3Control1 = poseFactory.of(20.0759, 44.9294, 0);
-    private final Pose point3Control2 = poseFactory.of(20.5513, 93.5285, 0);
-    private final Pose point3Segment1Heading = poseFactory.of(49.0542, 121.0074, -90);
-    private final Pose point3Segment3Start = poseFactory.of(49.0542, 121.0074, -113.9127);
-    private final Pose point3Segment3End = poseFactory.of(49.0542, 100.0074, 110);
-
-    private final Pose point4 = poseFactory.of(47.0386, 132.2078, 90);
-
-    private final Pose point5 = poseFactory.of(49.2088, 120.6891, 109.3732);
-    private final Pose point5Segment1Heading = poseFactory.of(49.2088, 120.6891, 90);
-
-    private final Pose point6 = poseFactory.of(22.6759, 46.6055, 91.8884);
-    private final Pose point6Control1 = poseFactory.of(21.1146, 93.96, 0);
-    private final Pose point6Segment1Heading = poseFactory.of(22.6759, 46.6055, 90);
-
-    private final Pose point7 = poseFactory.of(9.4364, 46.5721, -179.8556);
-
-    private final Pose point8 = poseFactory.of(27.7752, 46.4057, 179.4801);
-
-    private final Pose point9 = poseFactory.of(49.08, 120.9256, 110);
-    private final Pose point9Control1 = poseFactory.of(29.3975, 105.9785, 0);
-    private final Pose point9Segment2Start = poseFactory.of(49.08, 120.9256, -105.0982);
-    private final Pose point9Segment2End = poseFactory.of(49.08, 120.9256, 110);
-
-    private final Pose point10 = poseFactory.of(10, 89.4445, -0.0133);
-    private final Pose point10Control1 = poseFactory.of(29.2477, 89.44, 0);
-
-    /* 带超时的跟随：超过 timeoutSec 仍未走完就结束这一段，进入下一段 */
-    private Command followTimed(Path path, double timeoutSec, String name) {
-        /* race：跟随和计时器同时跑，谁先结束就结束整个 race。
-           正常走完时计时器被取消，不会计入超时；计时器先到才记一次超时 */
-        return race(
-                follow(follower, path),
-                sequential(
-                        waitMs(timeoutSec * 1000.0),
-                        instant(() -> {
-                            timeoutCount++;
-                            lastTimeoutPath = name;
-                        })
-                )
-        );
+    private
+    static final class Halt extends RuntimeException
+    {
+        Halt(String reason) { super(reason); }
     }
 
-    /* 记录 path3 结束瞬间的实际位置偏差，只做遥测，不影响动作 */
-    private Command recordPath3End() {
-        return instant(() -> {
-            Pose cur = follower.pose();
-            if (cur == null) return;
-            path3EndDx = cur.x() - point3.x();
-            path3EndDy = cur.y() - point3.y();
-            path3EndHeadingDeg = Math.toDegrees(cur.heading());
-        });
+    @Override public void
+    runOpMode()
+    {
+        String result = "未开始";
+        try
+        {
+            Scheduler.reset();
+            for (int i = 0; i < wheels.length; i++)
+            {
+                wheels[i] = hardwareMap.get(DcMotor.class, Integer.toString(i));
+            }
+            follower = Constants.create(hardwareMap);
+            follower.setPose(start);
+            initMechanisms();
+
+            while (opModeInInit())
+            {
+                follower.update();
+                stopDrive();
+                Pose actual = follower.pose();
+                if (valid(actual))
+                {
+                    telemetry.addData("起始定位 X / Y / 航向", "%.2f / %.2f / %.1f°",
+                            actual.x(), actual.y(), Math.toDegrees(actual.heading()));
+                    telemetry.addData("起点位置 / 航向误差", "%.2f 英寸 / %.1f°",
+                            distance(actual, start), headingError(actual, start));
+                }
+                else
+                {
+                    telemetry.addData("起始定位", "无效");
+                }
+                telemetry.addLine("起点先射；Path2 结束后原地转向并射球");
+                telemetry.addLine("确认车头朝 -90°，铲板升起，两闸关闭");
+                telemetry.update();
+                idle();
+            }
+            waitForStart();
+            if (isStopRequested())
+                return;
+            timer.reset();
+            result = runRoute() ? "Path8 停车完成" : "Path8 未到停车点，自动结束";
+        }
+        catch (Halt e)
+        {
+            result = phase + "：" + e.getMessage();
+        }
+        catch (RuntimeException e)
+        {
+            result = phase + "：" + e.getClass().getSimpleName() + " " + e.getMessage();
+        }
+        finally
+        {
+            try
+            {
+                Scheduler.reset();
+            }
+            finally
+            {
+                stopDrive();
+                stopMechanisms();
+            }
+        }
+
+        while (opModeIsActive())
+        {
+            telemetry.addData("最终状态", result);
+            telemetry.addData("飞轮转速", "%.0f RPM", rpm);
+            telemetry.addData("最近 02 / 03 电流", "%.2f / %.2f A", intakeA, transferA);
+            telemetry.update();
+            sleep(100);
+        }
     }
 
-    /* path3 结束后无论是否超时，只要离 point3 超过 SETTLE_DISTANCE，就从当前位置直线校正回 point3。
-       校正最多 SETTLE_TIMEOUT 秒，防止卡在原地 */
-    private Command settleAtPoint3() {
-        return lazy(() -> {
-            Pose cur = follower.pose();
-            if (cur == null) return instant(() -> { });
-            double dist = Math.hypot(cur.x() - point3.x(), cur.y() - point3.y());
-            if (dist < SETTLE_DISTANCE) return instant(() -> { });
-            return race(
-                    follow(follower, Paths.line(cur, point3).constant(point3)),
-                    waitMs(SETTLE_TIMEOUT * 1000.0)
-            );
-        });
+    private
+    void initMechanisms()
+    {
+        fly0 = motor("00", DcMotor.ZeroPowerBehavior.FLOAT);
+        fly0.setDirection(DcMotor.Direction.FORWARD);
+        fly1 = motor("01", DcMotor.ZeroPowerBehavior.FLOAT);
+        intake = motor("02", DcMotor.ZeroPowerBehavior.BRAKE);
+        transfer = motor("03", DcMotor.ZeroPowerBehavior.BRAKE);
+        transfer.setDirection(DcMotor.Direction.REVERSE);
+
+        small = hardwareMap.get(Servo.class, "s01");
+        big = hardwareMap.get(Servo.class, "s1");
+        pitchA = hardwareMap.get(Servo.class, "s2");
+        pitchB = hardwareMap.get(Servo.class, "s3");
+        shovelA = hardwareMap.get(Servo.class, "s00");
+        shovelB = hardwareMap.get(Servo.class, "s02");
+
+        setSeries(false);
+        gates(false);
+        pitchA.setPosition(FIRST_SHOT_PITCH);
+        pitchB.setPosition(FIRST_SHOT_PITCH);
+        shovel(false);
     }
 
-    /* path4 从机器人实际位置出发，直线连到 point4。
-       这样即使到 point3 时有横向偏差，也会在去花朵的路上被拉回 point4 的正前方 */
-    private Command path4FromCurrent() {
-        return lazy(() -> {
-            Pose cur = follower.pose();
-            if (cur == null) return follow(follower, path4());
-            return follow(follower, Paths.line(cur, point4).constant(point4));
-        });
+    private
+    DcMotorEx motor(String name, DcMotor.ZeroPowerBehavior zero)
+    {
+        DcMotorEx m = hardwareMap.get(DcMotorEx.class, name);
+        m.setPower(0);
+        m.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+        m.setZeroPowerBehavior(zero);
+        return m;
     }
 
-    /* 自动路径序列 */
-    public Command autoRoutine() {
-        return sequential(
-                follow(follower, path1()),
-                follow(follower, path2()),
-                followTimed(path3(), PATH3_TIMEOUT, "path3"),
-                recordPath3End(),
-                settleAtPoint3(),
-                path4FromCurrent(),
-                follow(follower, path5()),
-                follow(follower, path6()),
-                followTimed(path7(), PATH7_TIMEOUT, "path7"),
-                followTimed(path8(), PATH8_TIMEOUT, "path8"),
-                followTimed(path9(), PATH9_TIMEOUT, "path9"),
-                followTimed(path10(), PATH10_TIMEOUT, "path10")
-        );
+    private
+    boolean runRoute()
+    {
+        /* 开局先尝试射球；姿态超差或预热超时则关闸，继续 Path1。 */
+        targetRpm = FIRST_SHOT_RPM;
+        shoot("起点预装球", start, true);
+        targetRpm = FOLLOWUP_SHOT_RPM;
+        pitchA.setPosition(FOLLOWUP_SHOT_PITCH);
+        pitchB.setPosition(FOLLOWUP_SHOT_PITCH);
+
+        collect(1, p1);
+        spin = true;
+        try
+        {
+            if (leg(2, p2) && turnAtP2())
+            {
+                shoot("Path2转向后射球", s3);
+            }
+        }
+        finally
+        {
+            follower.stop();
+            stopDrive();
+            stopMechanisms();
+        }
+
+        moveShovel(true);
+        collect(3, p3);
+        spin = true;
+        boolean reachedP4 = leg(4, p4);
+        if (!reachedP4)
+            stopMechanisms();
+        moveShovel(false);
+        if (reachedP4)
+            shoot("Path4回射球区", p4);
+
+        leg(5, p5);
+        moveShovel(true);
+        collect(6, p6);
+        moveShovel(false);
+        spin = true;
+        boolean reachedP7 = leg(7, p7);
+
+        if (reachedP7 && timer.seconds() + SPINUP_LIMIT + GATE_DELAY + FEED_SEC + PARK_RESERVE + 0.15 < AUTO_LIMIT)
+        {
+            shoot("Path7回射球区", p7);
+        }
+        else
+        {
+            stopMechanisms();
+        }
+        return leg(8, p8);
     }
 
-    @Override
-    public void runOpMode() {
-        Scheduler.reset();
-        follower = Constants.create(hardwareMap);
-        follower.setPose(start);
+    private
+    Path path(int n)
+    {
+        switch (n)
+        {
+            case 1:
+                return Paths.curve(start, c1, p1).constant(p1);
+            case 2:
+                return Paths.curve(p1, c2, p2).linear(p1, p2);
+            case 3:
+                return Paths.line(s3, p3).linear(s3, p3);
+            case 4:
+                return Paths.line(p3, p4).linear(p3, p4);
+            case 5:
+                return Paths.curve(s5, c5, p5).linear(s5, p5);
+            case 6:
+                return Paths.line(p5, p6).tangent();
+            case 7:
+                return Paths.curve(s7, c71, c72, p7).linear(s7, p7);
+            case 8:
+                return Paths.curve(p7, c8, p8).reverseTangent();
+            default:
+                throw new IllegalArgumentException("不存在 Path" + n);
+        }
+    }
+
+    private
+    boolean leg(int n, Pose target)
+    {
+        phase = "Path" + n;
+        checkRun();
+        boolean[] done = {false};
+        boolean reached = false;
+        ElapsedTime elapsed = new ElapsedTime();
+        try
+        {
+            Scheduler.schedule(sequential(
+                    follow(follower, path(n)), instant(()->done[0] = true)));
+            Progress guard = new Progress();
+            while (!done[0])
+            {
+                tick();
+                Scheduler.execute();
+                if (done[0])
+                    break;
+                if (elapsed.seconds() >= LEG_LIMIT[n - 1])
+                {
+                    reportLegSkip(n, "本段超时");
+                    return false;
+                }
+                guard.check();
+            }
+            if (distance(follower.pose(), target) > POSITION_TOL_IN)
+            {
+                reportLegSkip(n, "跟随结束但未到终点");
+                return false;
+            }
+            reached = true;
+            return true;
+        }
+        finally
+        {
+            try
+            {
+                Scheduler.reset();
+            }
+            finally
+            {
+                if (!reached)
+                    follower.stop();
+                stopDrive();
+            }
+        }
+    }
+
+    private
+    void reportLegSkip(int n, String reason)
+    {
+        String next = n < LEG_LIMIT.length ? "继续 Path" + (n + 1) : "自动结束";
+        telemetry.log().add("Path" + n + "：" + reason + "，" + next);
+    }
+
+    private
+    boolean turnAtP2()
+    {
+        phase = "Path2终点原地转向";
+        checkRun();
+        /* 位置保持不变，目标航向为 -265.8°，等价于 94.2°。 */
+        follower.hold(s3);
+        ElapsedTime elapsed = new ElapsedTime();
+        double stableSince = -1;
+        Progress guard = new Progress();
+        while (true)
+        {
+            tick();
+            double now = timer.seconds();
+            if (atPose(s3))
+            {
+                if (stableSince < 0)
+                    stableSince = now;
+                if (now - stableSince >= SETTLE_SEC)
+                    return true;
+            }
+            else
+            {
+                stableSince = -1;
+            }
+            if (elapsed.seconds() >= TURN_LIMIT)
+            {
+                telemetry.log().add("Path2 转向超时：跳过射球，继续 Path3");
+                return false;
+            }
+            if (stableSince < 0)
+                guard.check();
+        }
+    }
+
+    private
+    final class Progress
+    {
+        private
+        Pose anchor = follower.pose();
+        private
+        double since = timer.seconds();
+
+        void check()
+        {
+            Pose actual = follower.pose();
+            if (distance(actual, anchor) >= MIN_MOVE_IN || headingError(actual, anchor) >= MIN_TURN_DEG)
+            {
+                anchor = actual;
+                since = timer.seconds();
+            }
+            else if (timer.seconds() - since >= STALL_WINDOW)
+            {
+                throw new Halt("底盘无有效位移或转角，检查车轮、障碍和定位");
+            }
+        }
+    }
+
+    private void
+    shoot(String name, Pose target)
+    {
+        shoot(name, target, false);
+    }
+
+    private
+    void shoot(String name, Pose target, boolean skipOnPreShotPoseError)
+    {
+        phase = name + "：等待飞轮达速";
+        checkRun();
+        spin = true;
+        try
+        {
+            ElapsedTime ready = new ElapsedTime();
+            double stableSince = -1;
+            while (true)
+            {
+                tick();
+                if (!atPose(target))
+                {
+                    Pose actual = follower.pose();
+                    String reason = String.format(
+                            "姿态偏离：位置误差 %.2f 英寸，航向误差 %.1f 度，禁止送料",
+                            distance(actual, target), headingError(actual, target));
+                    if (skipOnPreShotPoseError)
+                    {
+                        telemetry.log().add(name + "：" + reason + "；跳过首射，继续 Path1");
+                        return;
+                    }
+                    throw new Halt(reason);
+                }
+                double now = timer.seconds();
+                if (Math.abs(rpm - targetRpm) <= RPM_TOL)
+                {
+                    if (stableSince < 0)
+                        stableSince = now;
+                    if (now - stableSince >= 0.08)
+                        break;
+                }
+                else
+                {
+                    stableSince = -1;
+                }
+                if (ready.seconds() >= SPINUP_LIMIT)
+                {
+                    telemetry.log().add(String.format(
+                            "%s：预热超时（%.0f / %.0f RPM），跳过射球",
+                            name, rpm, targetRpm));
+                    return;
+                }
+            }
+
+            phase = name + "：开闸";
+            gates(true);
+            waitAtPose(GATE_DELAY, target);
+
+            phase = name + "：送料射球";
+            setSeries(true);
+            waitAtPose(FEED_SEC, target);
+        }
+        finally
+        {
+            stopMechanisms();
+        }
+    }
+
+    private
+    void waitAtPose(double seconds, Pose target)
+    {
+        ElapsedTime t = new ElapsedTime();
+        double lowSince = -1;
+        while (t.seconds() < seconds)
+        {
+            tick();
+            if (!atPose(target))
+                throw new Halt("射球中姿态偏离");
+            if (seriesOn && rpm < targetRpm * 0.45)
+            {
+                if (lowSince < 0)
+                    lowSince = timer.seconds();
+                if (timer.seconds() - lowSince >= 0.35)
+                {
+                    throw new Halt("送料时飞轮持续严重掉速");
+                }
+            }
+            else
+            {
+                lowSince = -1;
+            }
+        }
+    }
+
+    private
+    void collect(int n, Pose target)
+    {
+        checkRun();
+        gates(false);
+        setSeries(true);
+        try
+        {
+            if (leg(n, target))
+            {
+                if (n == 3)
+                {
+                    phase = "Path3末端补吸：底盘保持";
+                    try
+                    {
+                        follower.hold(target);
+                        waitTick(0.6);
+                    }
+                    finally
+                    {
+                        try
+                        {
+                            follower.stop();
+                        }
+                        finally
+                        {
+                            stopDrive();
+                        }
+                    }
+                }
+                else
+                {
+                    phase = "Path" + n + "末端补吸";
+                    waitTick(0.6);
+                }
+            }
+        }
+        finally
+        {
+            setSeries(false);
+        }
+    }
+
+    private
+    void moveShovel(boolean down)
+    {
+        checkRun();
+        phase = down ? "放铲板" : "升铲板";
+        shovel(down);
+        waitTick(0.5);
+    }
+
+    private
+    void waitTick(double seconds)
+    {
+        ElapsedTime t = new ElapsedTime();
+        while (t.seconds() < seconds)
+            tick();
+    }
+
+    private
+    void checkRun()
+    {
+        if (!opModeIsActive() || isStopRequested())
+            throw new Halt("收到 STOP");
+        if (timer.seconds() >= AUTO_LIMIT)
+            throw new Halt("自动总时限已到");
+    }
+
+    private
+    void tick()
+    {
+        checkRun();
         follower.update();
+        Pose actual = follower.pose();
+        if (!valid(actual))
+            throw new Halt("定位读数无效");
 
-        /* init 阶段持续刷新定位，消除起步抽搐 */
-        while (opModeInInit()) {
-            follower.update();
-            Pose initPose = follower.pose();
-            if (initPose != null) {
-                telemetry.addData("x", initPose.x());
-                telemetry.addData("y", initPose.y());
-                telemetry.addData("heading(deg)", Math.toDegrees(initPose.heading()));
-            } else {
-                telemetry.addLine("定位丢失");
+        double raw = -fly0.getVelocity() * 60.0 / TICKS_PER_REV;
+        if (!Double.isFinite(raw))
+            throw new Halt("00 飞轮编码器读数无效");
+        rpm += 0.4 * (raw - rpm);
+        double power = spin
+                ? Range.clip(0.00020 * targetRpm + 0.0050 * (targetRpm - rpm),
+                -0.1, 1.0)
+                : 0;
+        fly0.setPower(-power);
+        fly1.setPower(power);
+
+        if (seriesOn)
+        {
+            intakeA = intake.getCurrent(CurrentUnit.AMPS);
+            transferA = transfer.getCurrent(CurrentUnit.AMPS);
+            if (!Double.isFinite(intakeA) || !Double.isFinite(transferA))
+            {
+                throw new Halt("02/03 电流读数无效");
             }
-            telemetry.update();
+            if (Math.max(intakeA, transferA) >= SERIES_LIMIT_A)
+            {
+                if (highSince < 0)
+                    highSince = timer.seconds();
+                if (timer.seconds() - highSince >= OVERCURRENT_SEC)
+                {
+                    throw new Halt(intakeA >= transferA
+                            ? "02 吸球持续过流"
+                            : "03 通道持续过流");
+                }
+            }
+            else
+            {
+                highSince = -1;
+            }
         }
 
-        waitForStart();
-        if (isStopRequested()) return;
-
-        schedule(autoRoutine());
-
-        while (opModeIsActive()) {
-            follower.update();
-            Scheduler.execute();
-
-            Pose livePose = follower.pose();
-            if (livePose != null) {
-                telemetry.addData("x", livePose.x());
-                telemetry.addData("y", livePose.y());
-                telemetry.addData("heading(deg)", Math.toDegrees(livePose.heading()));
-            } else {
-                telemetry.addLine("定位丢失");
-            }
-
-            if (follower.currentPath() != null) {
-                telemetry.addData("Current path distance remaining", follower.distanceToEndpoint());
-                telemetry.addData("Path number", follower.pathIndex());
-            }
-            telemetry.addData("超时次数", timeoutCount);
-            telemetry.addData("最近超时的路径", lastTimeoutPath);
-            /* dx 为正表示 path3 结束时偏在 point3 右侧，dy 为正表示偏在 point3 上方 */
-            telemetry.addData("path3结束 dx(英寸)", path3EndDx);
-            telemetry.addData("path3结束 dy(英寸)", path3EndDy);
-            telemetry.addData("path3结束 朝向(度)", path3EndHeadingDeg);
+        if (timer.seconds() >= nextReport)
+        {
+            nextReport = timer.seconds() + 0.10;
+            telemetry.addData("状态", phase);
+            telemetry.addData("时间", "%.1f s", timer.seconds());
+            telemetry.addData("X / Y / 航向", "%.2f / %.2f / %.1f°",
+                    actual.x(), actual.y(), Math.toDegrees(actual.heading()));
+            telemetry.addData("飞轮", "%.0f RPM", rpm);
+            telemetry.addData("最近 02 / 03 电流", "%.2f / %.2f A", intakeA, transferA);
             telemetry.update();
+        }
+        idle();
+    }
+
+    private
+    boolean atPose(Pose target)
+    {
+        Pose actual = follower.pose();
+        return valid(actual) && distance(actual, target) <= POSITION_TOL_IN && headingError(actual, target) <= SHOT_HEADING_TOL;
+    }
+
+    private
+    static boolean valid(Pose p)
+    {
+        return p != null && Double.isFinite(p.x()) && Double.isFinite(p.y()) && Double.isFinite(p.heading());
+    }
+
+    private
+    static double distance(Pose a, Pose b)
+    {
+        return Math.hypot(a.x() - b.x(), a.y() - b.y());
+    }
+
+    private
+    static double headingError(Pose a, Pose b)
+    {
+        return Math.abs(Math.IEEEremainder(
+                Math.toDegrees(a.heading() - b.heading()), 360));
+    }
+
+    private
+    void shovel(boolean down)
+    {
+        shovelA.setPosition(down ? 0.48 : 0.00);
+        shovelB.setPosition(down ? 0.52 : 1.00);
+    }
+
+    private
+    void gates(boolean open)
+    {
+        if (small != null)
+            small.setPosition(open ? 0.19 : 0.00);
+        if (big != null)
+            big.setPosition(open ? 0.00 : 0.09);
+    }
+
+    private
+    void setSeries(boolean on)
+    {
+        seriesOn = on;
+        highSince = -1;
+        if (intake != null)
+            intake.setPower(on ? 1 : 0);
+        if (transfer != null)
+            transfer.setPower(on ? 1 : 0);
+    }
+
+    private
+    void stopDrive()
+    {
+        for (DcMotor wheel : wheels)
+        {
+            if (wheel != null)
+                wheel.setPower(0);
         }
     }
 
-    public Path path1() {
-        return Paths.line(start, path1Target).reverseTangent();
-    }
-
-    public Path path2() {
-        return Paths.curve(path1Target, point2Control1, point2).constant(point2);
-    }
-
-    public Path path3() {
-        return Paths.curve(point2, point3Control1, point3Control2, point3)
-                .heading(Interpolator.piecewise()
-                        .until(0.1373, Interpolator.constant(point3Segment1Heading))
-                        .until(0.7344, Interpolator.tangent.reverse())
-                        .until(1, Interpolator.linear(point3Segment3Start, point3Segment3End)));
-    }
-
-    public Path path4() {
-        return Paths.line(point3, point4).constant(point4);
-    }
-
-    /* 终点姿态线性插值，不使用 facingPoint，跑完不会原地自转 */
-    public Path path5() {
-        return Paths.line(point4, point5)
-                .heading(Interpolator.piecewise()
-                        .until(0.1657, Interpolator.constant(point5Segment1Heading))
-                        .until(1, Interpolator.linear(point4, point5)));
-    }
-
-    public Path path6() {
-        return Paths.curve(point5, point6Control1, point6)
-                .heading(Interpolator.piecewise()
-                        .until(0.0515, Interpolator.constant(point6Segment1Heading))
-                        .until(1, Interpolator.tangent.reverse()));
-    }
-
-    public Path path7() {
-        return Paths.line(point6, point7).reverseTangent();
-    }
-
-    public Path path8() {
-        return Paths.line(point7, point8).reverseTangent();
-    }
-
-    /* path8 到 path9 用 point8 到 point9Segment2Start 的线性过渡，避免 180 度跳变 */
-    public Path path9() {
-        return Paths.curve(point8, point9Control1, point9)
-                .heading(Interpolator.piecewise()
-                        .until(0.5949, Interpolator.linear(point8, point9Segment2Start))
-                        .until(1, Interpolator.linear(point9Segment2Start, point9Segment2End)));
-    }
-
-    public Path path10() {
-        return Paths.curve(point9, point10Control1, point10).reverseTangent();
+    private
+    void stopMechanisms()
+    {
+        spin = false;
+        setSeries(false);
+        if (fly0 != null)
+            fly0.setPower(0);
+        if (fly1 != null)
+            fly1.setPower(0);
+        gates(false);
     }
 }
