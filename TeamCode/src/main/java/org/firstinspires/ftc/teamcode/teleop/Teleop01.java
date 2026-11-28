@@ -24,7 +24,7 @@ public class Teleop01 extends OpMode {
     private DcMotorEx shooter0, shooter1;
     private DcMotorEx intakeMotor, transferMotor;
     private Servo smallGateServo, bigGateServo;
-    private Servo smallPitchServo1, smallPitchServo2;
+    private Servo smallPitchServo1, smallPitchServo2, bigPitchServo;
     private Servo shovel_lr;
 
     /* ==================== 通用参数 ==================== */
@@ -61,15 +61,15 @@ public class Teleop01 extends OpMode {
 
     /* ==================== 瞄准点 ==================== */
     private static final double[][] AIM_POINTS = {
-            {72, 48},
-            {72, 144-48}
+            {73.2, 48},
+            {73.2, 144-48}
     };
 
     /* ==================== 自瞄 PID ==================== */
-    private double AIM_KP = 1.66;
-    private double AIM_KD = 0.11;
+    private double AIM_KP = 1.56;
+    private double AIM_KD = 0.0965;//0.11
 
-    private static final double AIM_KI = 0.0;
+    private static final double AIM_KI = 0;
     private static final double AIM_MAX_TURN      = 0.8;
     private static final double AIM_TOLERANCE_RAD = Math.toRadians(2.0);
     private static final double AIM_I_MAX   = 1.0;
@@ -77,7 +77,7 @@ public class Teleop01 extends OpMode {
     private static final double AIM_D_FILTER = 0.7;
 
     /* ==================== 发射参数 ==================== */
-    private static final double RPM_ENTER_ERR      = 100.0;
+    private static final double RPM_ENTER_ERR      = 150.0;//100
     private static final double RPM_EXIT_ERR       = 200.0;
     private static final double ENTER_STABLE_TIME  = 0.10;
 
@@ -121,7 +121,7 @@ public class Teleop01 extends OpMode {
     private boolean gp2RTReverseActive = false;
 
     // ★ X 切换是否使用打表
-    private boolean useTable = false;
+    private boolean useTable = false;//false
 
     private static final double TUNER_RPM_STEP         = 5.0;
     private static final double TUNER_SMALL_PITCH_STEP = 0.005;
@@ -208,6 +208,7 @@ public class Teleop01 extends OpMode {
 
         smallPitchServo1 = hardwareMap.get(Servo.class, "s2");
         smallPitchServo2 = hardwareMap.get(Servo.class, "s3");
+        bigPitchServo = hardwareMap.get(Servo.class, "s0");
         shovel_lr = hardwareMap.get(Servo.class, "s00");
 
         imu = hardwareMap.get(IMU.class, "imu");
@@ -429,10 +430,10 @@ public class Teleop01 extends OpMode {
         boolean rtHeld        = rt >= RT_RELEASE_THRESHOLD;
 
         if (!firingActive) {
-            boolean enterable = rtFireRequest && rpmReadyLatched;
-            if (enterable) {
+            boolean enterable = rtFireRequest && rpmReadyLatched && lastAimErrorRad<0.07;//shoterror  && lastAimErrorRad<0.07
+            if (enterable || (gamepad1.right_bumper && rpmReadyLatched)) { //(gamepad1.right_bumper && rpmReadyLatched)
                 stableTimer += dt;
-                if (stableTimer >= ENTER_STABLE_TIME) {
+                if (stableTimer >= ENTER_STABLE_TIME || (gamepad1.right_bumper && rpmReadyLatched)) {
                     firingActive = true;
                     stableTimer  = 0;
                 }
@@ -440,7 +441,7 @@ public class Teleop01 extends OpMode {
                 stableTimer = 0;
             }
         } else {
-            if (!rtHeld) {
+            if (!rtHeld && !gamepad1.right_bumper) {
                 firingActive = false;
             }
         }
@@ -512,7 +513,7 @@ public class Teleop01 extends OpMode {
         telemetry.addData("GP2 反转", "LT:%s RT:%s",
                 gp2LTReverseActive ? "是" : "否",
                 gp2RTReverseActive ? "是" : "否");
-        telemetry.addData("Aim PID", "KP=%.2f  KD=%.2f", AIM_KP, AIM_KD);
+        telemetry.addData("Aim PID", "KP=%.6f  KD=%.6f", AIM_KP, AIM_KD);
         telemetry.addData("Shooter PD", "kP=%.5f  kD=%.5f  kF=%.5f", kP, kD, kF);
         telemetry.addData("Shooter 调参", "dpad↑↓ kP  dpad←→ kD  A/B kF");
 
@@ -558,18 +559,34 @@ public class Teleop01 extends OpMode {
     private void updateShooterPdFromGamepad1() {
         // 上/下：kP
         if (gamepad1.dpad_up    && !prevUp1) {
-            kP = clamp(kP + TUNER_SHOOTER_PD_STEP, SHOOTER_KP_MIN, SHOOTER_KP_MAX);
+            AIM_KP = clamp(AIM_KP + 0.05, SHOOTER_KP_MIN, 3);
+
         }
         if (gamepad1.dpad_down  && !prevDown1) {
-            kP = clamp(kP - TUNER_SHOOTER_PD_STEP, SHOOTER_KP_MIN, SHOOTER_KP_MAX);
+            AIM_KP = clamp(AIM_KP - 0.05, SHOOTER_KP_MIN, 3);
         }
         // 右/左：kD
         if (gamepad1.dpad_right && !prevRight1) {
-            kD = clamp(kD + TUNER_SHOOTER_PD_STEP, SHOOTER_KD_MIN, SHOOTER_KD_MAX);
+            AIM_KD = clamp(AIM_KD + 0.005, SHOOTER_KD_MIN, 1);
         }
         if (gamepad1.dpad_left  && !prevLeft1) {
-            kD = clamp(kD - TUNER_SHOOTER_PD_STEP, SHOOTER_KD_MIN, SHOOTER_KD_MAX);
+            AIM_KD = clamp(AIM_KD - 0.005, SHOOTER_KD_MIN, 1);
         }
+
+//        if (gamepad1.dpad_up    && !prevUp1) {
+//            kP = clamp(kP + TUNER_SHOOTER_PD_STEP, SHOOTER_KP_MIN, SHOOTER_KP_MAX);
+//
+//        }
+//        if (gamepad1.dpad_down  && !prevDown1) {
+//            kP = clamp(kP - TUNER_SHOOTER_PD_STEP, SHOOTER_KP_MIN, SHOOTER_KP_MAX);
+//        }
+//        // 右/左：kD
+//        if (gamepad1.dpad_right && !prevRight1) {
+//            kD = clamp(kD + TUNER_SHOOTER_PD_STEP, SHOOTER_KD_MIN, SHOOTER_KD_MAX);
+//        }
+//        if (gamepad1.dpad_left  && !prevLeft1) {
+//            kD = clamp(kD - TUNER_SHOOTER_PD_STEP, SHOOTER_KD_MIN, SHOOTER_KD_MAX);
+//        }
 
         prevUp1    = gamepad1.dpad_up;
         prevDown1  = gamepad1.dpad_down;
@@ -581,7 +598,7 @@ public class Teleop01 extends OpMode {
     private void applyPitch(double small, double big) {
         smallPitchServo1.setPosition(small);
         smallPitchServo2.setPosition(PITCH_MIRROR ? 1.0 - small : small);
-    }
+        bigPitchServo.setPosition(big);}
 
     private void anchorPinpoint() {
         if (pinpoint == null || !pinpointStarted) { pinpointAnchored = false; return; }

@@ -33,6 +33,13 @@ public class table {
     //   pitchBig    : 大球俯仰 Servo 位置 0~1
     //   shooterRPM  : 目标转速
     private static final Point[] POINTS = {
+            new Point(13, 14, 0.47, 0.15, 3700),
+
+            new Point(42.6, 29.1, 0.47, 0.25, 3700),
+            new Point(67.4, 39.5, 0.37, 0.23, 3700),
+            new Point(60.4, 32.5, 0.47, 0.15, 3680)
+
+
     };
 
     /* ==================== 查表结果 ==================== */
