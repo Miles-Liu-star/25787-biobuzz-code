@@ -499,6 +499,7 @@ public class Teleop2 extends OpMode {
             if (gamepad2.dpad_right && !prevRight2) calSmallPitchRed = clamp(calSmallPitchRed + TUNER_SMALL_PITCH_STEP, PITCH_MIN, PITCH_MAX);
             if (gamepad2.left_bumper  && !prevLB2)  calBigPitchRed   = clamp(calBigPitchRed   - TUNER_BIG_PITCH_STEP,   PITCH_MIN, PITCH_MAX);
             if (gamepad2.right_bumper && !prevRB2)  calBigPitchRed   = clamp(calBigPitchRed   + TUNER_BIG_PITCH_STEP,   PITCH_MIN, PITCH_MAX);
+
         } else {
             if (gamepad2.dpad_up    && !prevUp2)    calRpmBlue        = clamp(calRpmBlue        + TUNER_RPM_STEP,         0, 6000);
             if (gamepad2.dpad_down  && !prevDown2)  calRpmBlue        = clamp(calRpmBlue        - TUNER_RPM_STEP,         0, 6000);
